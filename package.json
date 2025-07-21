@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
-    "typeorm": "ts-node ./node_modules/typeorm/cli.js -d ./src/config/dataSource.js",
-    "migration:generate": "npm run typeorm -- migration:generate",
+    "typeorm": "node ./node_modules/typeorm/cli.js -d ./src/config/dataSource.js",
+    "migration:generate": "npm run typeorm -- migration:generate --outputJs",
     "migration:run": "npm run typeorm -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert"
   },
@@ -26,7 +26,6 @@
     "typeorm": "^0.3.20"
   },
   "devDependencies": {
-    "nodemon": "^3.1.4",
-    "ts-node": "^10.9.2"
+    "nodemon": "^3.1.4"
   }
 }

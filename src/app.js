@@ -27,7 +27,7 @@ AppDataSource.initialize()
         console.log("✅ Đã kết nối cơ sở dữ liệu thành công!");
 
         const officerRepository = AppDataSource.getRepository("User");
-        const caseRepository = AppDataSource.getRepository("DebtCase");
+        // const caseRepository = AppDataSource.getRepository("DebtCase");
 
         let admin = await officerRepository.findOneBy({
             username: "admin",
