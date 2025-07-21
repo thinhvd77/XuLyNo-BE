@@ -1,7 +1,6 @@
 const { AppDataSource } = require('../config/dataSource');
 
 // Lấy repository cho cả hai entity
-const caseRepository = AppDataSource.getRepository('DebtCase');
 // const caseDocumentRepository = AppDataSource.getRepository('CaseDocument');
 
 /**
@@ -27,6 +26,7 @@ const caseRepository = AppDataSource.getRepository('DebtCase');
  * MỚI: Tìm tất cả hồ sơ được phân công cho một nhân viên cụ thể
  */
 exports.findCasesByEmployeeCode = async (employeeCode) => {
+  const caseRepository = AppDataSource.getRepository("DebtCase");
   const cases = await caseRepository.find({
     where: {
       assigned_employee_code: employeeCode,

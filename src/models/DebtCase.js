@@ -58,6 +58,7 @@ const DebtCase = new EntitySchema({
       type: 'many-to-one',
       joinColumn: {
         name: 'assigned_employee_code', // Cột khóa ngoại trong bảng này
+        referencedColumnName: 'employee_code'
       },
       onDelete: 'SET NULL', // Nếu cán bộ bị xóa, gán cho hồ sơ này là NULL
     }

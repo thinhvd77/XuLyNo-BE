@@ -1,17 +1,19 @@
 const { DataSource } = require("typeorm");
+const { User } = require("../models/User");
+const { DebtCase } = require("../models/DebtCase");
 require('dotenv').config();
 
-const AppDataSource = new DataSource({
+// SỬA LẠI Ở ĐÂY: Export trực tiếp instance, không qua object
+module.exports = new DataSource({
     type: "postgres",
     host: process.env.DB_HOST,
     port: process.env.DB_PORT,
     username: process.env.DB_USERNAME,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_DATABASE,
-    synchronize: false, // DEV only!
+    entities: [User, DebtCase],
+    synchronize: false,
     logging: false,
-    entities: [__dirname + '/../models/*.js'], // Đường dẫn tới tất cả các file model
+    entities: [__dirname + '/../models/*.js'],
     migrations: [__dirname + '/../database/migrations/*.js'],
 });
-
-module.exports = { AppDataSource };

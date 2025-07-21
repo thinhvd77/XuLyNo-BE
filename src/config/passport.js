@@ -6,7 +6,7 @@ const { AppDataSource } = require("./dataSource");
 const User = require("../models/User").User;
 
 module.exports = function (passport) {
-    const userRepository = AppDataSource.getRepository(User);
+    const userRepository = AppDataSource.getRepository("User");
 
     // --- Local Strategy (cho việc đăng nhập) ---
     passport.use(
