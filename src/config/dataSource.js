@@ -17,3 +17,4 @@ module.exports = new DataSource({
     entities: [__dirname + '/../models/*.js'],
     migrations: [__dirname + '/../database/migrations/*.js'],
 });
+

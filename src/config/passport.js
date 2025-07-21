@@ -2,12 +2,11 @@ const LocalStrategy = require("passport-local").Strategy;
 const JwtStrategy = require("passport-jwt").Strategy;
 const ExtractJwt = require("passport-jwt").ExtractJwt;
 const bcrypt = require("bcrypt");
-const { AppDataSource } = require("./dataSource");
+const AppDataSource = require("./dataSource");
 const User = require("../models/User").User;
 
 module.exports = function (passport) {
     const userRepository = AppDataSource.getRepository("User");
-
     // --- Local Strategy (cho việc đăng nhập) ---
     passport.use(
         new LocalStrategy(
