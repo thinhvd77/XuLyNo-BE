@@ -23,7 +23,7 @@ const User = new EntitySchema({
         },
         dept: {
             type: "enum",
-            enum: ["KHDN", "KH&QLRR", "BGĐ"],
+            enum: ["KHCN","KHDN", "KH&QLRR", "BGĐ", "IT"],
         },
         role: {
             type: "enum",
@@ -33,6 +33,7 @@ const User = new EntitySchema({
                 "Trưởng phòng",
                 "Phó giám đốc",
                 "Giám đốc",
+                "Administrator"
             ],
             default: "Nhân viên",
         },

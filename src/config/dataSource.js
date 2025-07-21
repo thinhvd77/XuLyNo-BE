@@ -1,6 +1,5 @@
 const { DataSource } = require("typeorm");
-const { User } = require("../models/User");
-const { DebtCase } = require("../models/DebtCase");
+require('dotenv').config();
 
 const AppDataSource = new DataSource({
     type: "postgres",
@@ -9,9 +8,10 @@ const AppDataSource = new DataSource({
     username: process.env.DB_USERNAME,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_DATABASE,
-    entities: [User, DebtCase],
-    synchronize: true, // DEV only!
+    synchronize: false, // DEV only!
     logging: false,
+    entities: [__dirname + '/../models/*.js'], // Đường dẫn tới tất cả các file model
+    migrations: [__dirname + '/../database/migrations/*.js'],
 });
 
 module.exports = { AppDataSource };

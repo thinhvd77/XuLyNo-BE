@@ -29,58 +29,23 @@ AppDataSource.initialize()
         const officerRepository = AppDataSource.getRepository("User");
         const caseRepository = AppDataSource.getRepository("DebtCase");
 
-        let testOfficer = await officerRepository.findOneBy({
-            username: "cbtd02",
+        let admin = await officerRepository.findOneBy({
+            username: "admin",
         });
-        if (!testOfficer) {
-            console.log("Tạo Cán bộ Tín dụng mẫu...");
-            const officerData1 = {
-                employee_code: "CBTD001",
-                username: "cbtd01",
-                fullname: "Nguyễn Long",
-                dept: "KHDN",
+        if (!admin) {
+            console.log("Tạo Administrator...");
+            const adminData = {
+                employee_code: "99999999",
+                username: "admin",
+                fullname: "Administrator",
+                dept: "IT",
                 branch_code: "6421",
-                role: "Nhân viên",
-                password: await bcrypt.hash("password123", 10),
+                role: "Administrator",
+                password: await bcrypt.hash("Admin@6421", 10),
             };
-            const officerData2 = {
-                employee_code: "CBTD002",
-                username: "cbtd02",
-                fullname: "Nguyễn Long",
-                dept: "KHDN",
-                branch_code: "6421",
-                role: "Nhân viên",
-                password: await bcrypt.hash("password123", 10),
-            };
-            testOfficer1 = await officerRepository.save(
-                officerRepository.create(officerData1)
-            );
-            testOfficer2 = await officerRepository.save(
-                officerRepository.create(officerData2)
-            );
-            console.log(
-                "✅ Đã tạo CBTD (username: cbtd01, password: password123)"
-            );
-
-            // Tạo hồ sơ mẫu cho CBTD này
-            console.log("Tạo Hồ sơ nợ mẫu...");
-            const caseData1 = {
-                customer_code: "KH001",
-                customer_name: "Công ty TNHH A",
-                outstanding_debt: 150000000,
-                state: "Mới",
-                assigned_employee_code: testOfficer1.employee_code,
-            };
-            const caseData2 = {
-                customer_code: "KH002",
-                customer_name: "Công ty Cổ phần B",
-                outstanding_debt: 320000000,
-                state: "Đang xử lý",
-                assigned_employee_code: testOfficer1.employee_code,
-            };
-            await caseRepository.save(caseRepository.create(caseData1));
-            await caseRepository.save(caseRepository.create(caseData2));
-            console.log("✅ Đã tạo 2 hồ sơ nợ mẫu cho CBTD001");
+            admin = officerRepository.create(adminData);
+            await officerRepository.save(admin);
+            console.log("✅ Tạo Administrator thành công!");
         }
 
         // Routes
