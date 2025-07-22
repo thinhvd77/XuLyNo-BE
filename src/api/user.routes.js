@@ -38,4 +38,29 @@ router.post(
     userController.createUser // 4. Xử lý logic
 );
 
+// Định nghĩa route: GET /api/users
+router.get(
+    "/",
+    protect, // 1. Yêu cầu đăng nhập
+    authorize("Administrator", "Giám đốc", "Phó giám đốc"), // 2. Yêu cầu vai trò là Administrator, Giám đốc hoặc Phó giám đốc
+    userController.getAllUsers // 3. Xử lý logic
+);
+
+// Định nghĩa route: GET /api/users/:id
+router.get(
+    "/:id",
+    protect, // 1. Yêu cầu đăng nhập
+    authorize("Administrator", "Giám đốc", "Phó giám đốc"), // 2. Yêu cầu vai trò là Administrator, Giám đốc hoặc Phó giám đốc
+    userController.getUserById // 3. Xử lý logic
+);
+
+// MỚI: Định nghĩa route để Trưởng/Phó phòng lấy danh sách nhân viên
+// GET /api/users/managed-officers
+router.get(
+    '/managed-officers',
+    protect, // Yêu cầu đăng nhập
+    authorize("Trưởng phòng", "Phó phòng"), // Chỉ Trưởng phòng và Phó phòng được truy cập
+    userController.getManagedOfficers
+);
+
 module.exports = router;

@@ -21,3 +21,48 @@ exports.createUser = async (req, res) => {
         res.status(409).json({ success: false, message: error.message });
     }
 };
+
+exports.getAllUsers = async (req, res) => {
+    try {
+        // 1. Gọi service để lấy danh sách người dùng
+        const users = await userService.getAllUsers();
+        res.status(200).json({
+            success: true,
+            users: users,
+        });
+    } catch (error) {
+        // 2. Xử lý lỗi nếu có
+        res.status(500).json({ success: false, message: error.message });
+    }
+}
+
+exports.getUserById = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // 1. Gọi service để lấy người dùng theo ID
+        const user = await userService.getUserById(id);
+        res.status(200).json({
+            success: true,
+            user: user,
+        });
+    } catch (error) {
+        // 2. Xử lý lỗi nếu người dùng không tồn tại
+        res.status(404).json({ success: false, message: error.message });
+    }
+}
+
+/**
+ * MỚI: Lấy danh sách nhân viên thuộc quyền quản lý
+ */
+exports.getManagedOfficers = async (req, res) => {
+    try {
+        // req.user chứa thông tin của Trưởng/Phó phòng đang đăng nhập
+        const manager = req.user;
+        const officers = await userService.findOfficersByManager(manager);
+        res.status(200).json(officers);
+    } catch (error) {
+        console.error("Lỗi khi lấy danh sách nhân viên:", error);
+        res.status(500).json({ success: false, message: "Đã có lỗi xảy ra trên server." });
+    }
+};
