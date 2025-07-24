@@ -25,7 +25,7 @@ exports.createUser = async (req, res) => {
 exports.getAllUsers = async (req, res) => {
     try {
         // 1. Gọi service để lấy danh sách người dùng
-        const users = await userService.getAllUsers();
+        const users = await userService.getAllUsers(req.user.employee_code);
         res.status(200).json({
             success: true,
             users: users,
@@ -66,3 +66,16 @@ exports.getManagedOfficers = async (req, res) => {
         res.status(500).json({ success: false, message: "Đã có lỗi xảy ra trên server." });
     }
 };
+
+exports.deleteUserById = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // 1. Gọi service để xóa người dùng theo ID
+        const result = await userService.deleteUserById(id);
+        res.status(200).json(result);
+    } catch (error) {
+        // 2. Xử lý lỗi nếu người dùng không tồn tại hoặc không thể xóa
+        res.status(404).json({ success: false, message: error.message });
+    }
+}

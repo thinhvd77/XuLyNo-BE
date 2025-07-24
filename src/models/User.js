@@ -22,21 +22,18 @@ const User = new EntitySchema({
             type: "varchar",
         },
         dept: {
-            type: "enum",
-            enum: ["KHCN","KHDN", "KH&QLRR", "BGĐ", "IT"],
+            type: "varchar",
+            length: 50,
         },
         role: {
-            type: "enum",
-            enum: [
-                "Nhân viên",
-                "Phó phòng",
-                "Trưởng phòng",
-                "Phó giám đốc",
-                "Giám đốc",
-                "Administrator"
-            ],
-            default: "Nhân viên",
+            type: "varchar",
+            length: 50,
+            default: "employee",
         },
+        status: {
+            type: "varchar",
+            default: "active",
+        }
     },
 });
 

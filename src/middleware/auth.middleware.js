@@ -6,6 +6,9 @@ exports.protect = passport.authenticate('jwt', { session: false });
 // Middleware để kiểm tra vai trò người dùng
 exports.authorize = (...roles) => {
   return (req, res, next) => {
+    console.log(typeof req.user.role);
+    console.log(roles);
+    
     if (!req.user || !roles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,

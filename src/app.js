@@ -16,6 +16,10 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use((req, res, next) => {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    next();
+});
 
 // Cấu hình Passport
 app.use(passport.initialize());
@@ -40,7 +44,7 @@ AppDataSource.initialize()
                 fullname: "Administrator",
                 dept: "IT",
                 branch_code: "6421",
-                role: "Administrator",
+                role: "administrator",
                 password: await bcrypt.hash("Admin@6421", 10),
             };
             admin = officerRepository.create(adminData);

@@ -1,5 +1,6 @@
 const AppDataSource = require("../config/dataSource");
 const bcrypt = require("bcrypt");
+const { Not } = require("typeorm");
 const User = require("../models/User").User;
 
 const userRepository = AppDataSource.getRepository("User");
@@ -35,12 +36,23 @@ exports.createUser = async (userData) => {
     return userWithoutPassword;
 };
 
-exports.getAllUsers = async () => {
-    return await userRepository.find();
-}
-
+exports.getAllUsers = async (user_employee_code) => {
+    const userRepository = AppDataSource.getRepository("User");
+    return await userRepository.find({
+        where: {
+            employee_code: Not(user_employee_code)
+        },
+        order: {
+            branch_code: "DESC",
+            dept: "ASC",
+            role: "DESC",
+            fullname: "ASC"
+        }
+    });
+};
 
 exports.getUserById = async (id) => {
+    const userRepository = AppDataSource.getRepository("User");
     const user = await userRepository.findOne({
         where: { employee_code: id },
     });
@@ -52,24 +64,39 @@ exports.getUserById = async (id) => {
     // Trả về dữ liệu người dùng (loại bỏ mật khẩu)
     const { password: _, ...userWithoutPassword } = user;
     return userWithoutPassword;
-}
+};
 
 /**
  * MỚI: Tìm nhân viên theo phòng ban và chi nhánh của người quản lý
  * @param {object} manager - Thông tin người quản lý đang đăng nhập
  */
 exports.findOfficersByManager = async (manager) => {
-    
+    const userRepository = AppDataSource.getRepository("User");
     const officers = await userRepository.find({
         where: {
             dept: manager.dept, // Cùng phòng ban
             branch_code: manager.branch_code, // Cùng chi nhánh
             // Lấy các vai trò cấp dưới, ví dụ 'Nhân viên'
-            role: "Nhân viên",
+            role: "employee",
             // Loại trừ chính người quản lý ra khỏi danh sách
-            employee_code: Not(manager.employee_code) 
+            employee_code: Not(manager.employee_code),
         },
         select: ["employee_code", "fullname", "username", "dept", "role"], // Chỉ trả về các trường an toàn
     });
     return officers;
 };
+
+// Xóa người dùng theo ID
+exports.deleteUserById = async (id) => {
+    const userRepository = AppDataSource.getRepository("User");
+    const user = await userRepository.findOne({
+        where: { employee_code: id },
+    });
+
+    if (!user) {
+        throw new Error("Người dùng không tồn tại.");
+    }
+
+    await userRepository.remove(user);
+    return { success: true, message: "Người dùng đã được xóa thành công." };
+}

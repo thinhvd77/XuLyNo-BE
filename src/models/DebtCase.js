@@ -15,15 +15,10 @@ const DebtCase = new EntitySchema({
       generated: 'uuid', // Tự động tạo UUID cho mỗi hồ sơ mới
     },
     customer_code: {
-      type: 'varchar',
-      unique: true,
+      type: 'varchar'
     },
     customer_name: {
       type: 'varchar',
-    },
-    address: {
-      type: 'text',
-      nullable: true, // Cho phép địa chỉ có thể trống
     },
     outstanding_debt: {
       type: 'numeric',
@@ -34,6 +29,10 @@ const DebtCase = new EntitySchema({
       type: 'enum',
       enum: ['Mới', 'Đang xử lý', 'Đã khởi kiện', 'Đang thi hành án', 'Hoàn tất'],
       default: 'Mới',
+    },
+    case_type: {
+      type: 'enum',
+      enum: ['internal', 'external']
     },
     created_date: {
       type: 'timestamptz',

@@ -1,7 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const { body } = require("express-validator");
-const { protect, authorize } = require("../middleware/auth.middleware");
+const authorize  = require("../middleware/auth.middleware").authorize;
+const protect = require("../middleware/auth.middleware").protect;
 const userController = require("../controllers/user.controller");
 
 // Validation rules for creating a user
@@ -19,12 +20,12 @@ const createUserValidationRules = [
         .withMessage("Phòng ban không hợp lệ."),
     body("role")
         .isIn([
-            "Nhân viên",
-            "Phó phòng",
-            "Trưởng phòng",
-            "Phó giám đốc",
-            "Giám đốc",
-            "Administrator",
+            "employee",
+            "deputy_manager",
+            "manager",
+            "deputy_director",
+            "director",
+            "administrator",
         ])
         .withMessage("Vai trò không hợp lệ."),
 ];
@@ -33,7 +34,7 @@ const createUserValidationRules = [
 router.post(
     "/create",
     protect, // 1. Yêu cầu đăng nhập
-    authorize("Administrator"), // 2. Yêu cầu vai trò là Trưởng phòng hoặc Giám đốc
+    authorize("administrator"), // 2. Yêu cầu vai trò là Trưởng phòng hoặc Giám đốc
     createUserValidationRules, // 3. Kiểm tra dữ liệu đầu vào
     userController.createUser // 4. Xử lý logic
 );
@@ -42,25 +43,32 @@ router.post(
 router.get(
     "/",
     protect, // 1. Yêu cầu đăng nhập
-    authorize("Administrator", "Giám đốc", "Phó giám đốc"), // 2. Yêu cầu vai trò là Administrator, Giám đốc hoặc Phó giám đốc
+    authorize("administrator", "director", "deputy_director"), // 2. Yêu cầu vai trò là Administrator, Giám đốc hoặc Phó giám đốc
     userController.getAllUsers // 3. Xử lý logic
+);
+
+// MỚI: Định nghĩa route để Trưởng/Phó phòng lấy danh sách nhân viên
+// GET /api/users/managed-officers
+router.get(
+    "/managed",
+    protect, // Yêu cầu đăng nhập
+    authorize("manager", "deputy_manager"), // Chỉ Trưởng phòng và Phó phòng được truy cập
+    userController.getManagedOfficers
 );
 
 // Định nghĩa route: GET /api/users/:id
 router.get(
     "/:id",
     protect, // 1. Yêu cầu đăng nhập
-    authorize("Administrator", "Giám đốc", "Phó giám đốc"), // 2. Yêu cầu vai trò là Administrator, Giám đốc hoặc Phó giám đốc
+    authorize("administrator", "director", "deputy_director"), // 2. Yêu cầu vai trò là Administrator, Giám đốc hoặc Phó giám đốc
     userController.getUserById // 3. Xử lý logic
 );
 
-// MỚI: Định nghĩa route để Trưởng/Phó phòng lấy danh sách nhân viên
-// GET /api/users/managed-officers
-router.get(
-    '/managed-officers',
-    protect, // Yêu cầu đăng nhập
-    authorize("Trưởng phòng", "Phó phòng"), // Chỉ Trưởng phòng và Phó phòng được truy cập
-    userController.getManagedOfficers
+router.delete(
+    "/:id",
+    protect, // 1. Yêu cầu đăng nhập
+    authorize("administrator"), // 2. Yêu cầu vai trò là Administrator
+    userController.deleteUserById // 3. Xử lý logic
 );
 
 module.exports = router;

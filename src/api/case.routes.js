@@ -1,8 +1,14 @@
 const express = require('express');
 const router = express.Router();
+const { body } = require('express-validator');
 const passport = require('passport');
+const multer = require('multer'); // MỚI: Import multer
 const caseController = require('../controllers/case.controller');
-// const upload = require('../config/multer.config');
+const { protect, authorize } = require('../middleware/auth.middleware');
+
+// MỚI: Cấu hình multer để lưu file vào bộ nhớ
+const memoryStorage = multer.memoryStorage();
+const upload = multer({ storage: memoryStorage });
 
 // MỚI: Route để lấy danh sách hồ sơ của CBTD
 // GET /api/cases/my-cases
@@ -12,13 +18,43 @@ router.get(
     caseController.getMyCases
 );
 
-// Route để upload tài liệu cho một hồ sơ cụ thể
-// POST /api/cases/:caseId/documents
-// router.post(
-//   '/:caseId/documents',
-//   passport.authenticate('jwt', { session: false }), 
-//   upload.single('document'),
-//   caseController.uploadDocument
-// );
+router.post(
+    '/import-internal',
+    protect,
+    authorize('administrator', 'manager'), // Chỉ Admin được import
+    upload.single('casesFile'), // Middleware của multer, 'casesFile' là tên field trong form-data
+    caseController.importCases
+);
+
+router.post(
+    '/import-external',
+    protect,
+    authorize('administrator', 'manager'), // Chỉ Admin được import
+    upload.single('casesFile'), // Middleware của multer, 'externalCasesFile' là tên field trong form-data
+    caseController.importExternalCases
+);
+
+router.get(
+    '/contents/:caseId',
+    protect,
+    caseController.getCaseUpdateContent
+)
+
+router.post(
+    '/:caseId/updates',
+    protect, // Yêu cầu đăng nhập
+    body('content').notEmpty().withMessage('Nội dung cập nhật không được để trống.'), // Validation
+    caseController.createCaseUpdate
+);
+
+// MỚI: Route để lấy danh sách hồ sơ của CBTD
+// GET /api/cases/:caseId
+router.get(
+    '/:caseId',
+    protect,
+    authorize('employee', 'manager', 'administrator'), // Các vai trò được phép truy cập
+    caseController.getCaseDetails
+);
+
 
 module.exports = router;

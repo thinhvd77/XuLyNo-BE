@@ -25,12 +25,7 @@ const CaseDocument = new EntitySchema({
       type: 'bigint',
     },
     document_type: {
-      type: 'enum',
-      enum: ['Tài liệu Tòa án', 'Tài liệu Thi hành án', 'Tài liệu Bán nợ', 'Tài liệu Tài sản', 'Tài liệu Khách hàng', 'Khác'],
-    },
-    uploaded_by_employee_code: {
       type: 'varchar',
-      nullable: true,
     },
     upload_date: {
       type: 'timestamptz',
@@ -38,7 +33,15 @@ const CaseDocument = new EntitySchema({
     },
   },
   relations: {
-    // Thêm các quan hệ ở đây nếu cần
+    case: {
+      type: 'many-to-one',
+      target: 'DebtCase',
+      joinColumn: {
+        name: 'case_id',
+        referencedColumnName: 'case_id',
+      },
+      onDelete: 'CASCADE', // Xóa tài liệu khi xóa trường hợp
+    },
   },
 });
 
