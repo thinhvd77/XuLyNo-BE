@@ -5,7 +5,7 @@ const cors = require("cors");
 const passport = require("passport");
 const bcrypt = require("bcrypt");
 const apiRoutes = require("./api");
-const { AppDataSource } = require("./config/dataSource");
+const AppDataSource = require("./config/dataSource");
 const { User } = require("./models/User");
 
 // Khởi tạo server
