@@ -6,18 +6,24 @@ const AppDataSource = require("./dataSource");
 const User = require("../models/User").User;
 
 module.exports = function (passport) {
-    const userRepository = AppDataSource.getRepository("User");
     // --- Local Strategy (cho việc đăng nhập) ---
     passport.use(
         new LocalStrategy(
             { usernameField: "username" },
             async (username, password, done) => {
                 try {
+                    const userRepository = AppDataSource.getRepository("User");
                     const user = await userRepository.findOneBy({ username });
 
                     if (!user) {
                         return done(null, false, {
                             message: "Tên đăng nhập không tồn tại.",
+                        });
+                    }
+
+                    if (user.status !== "active") {
+                        return done(null, false, {
+                            message: "Tài khoản đã bị vô hiệu hóa.",
                         });
                     }
 
@@ -48,6 +54,7 @@ module.exports = function (passport) {
     passport.use(
         new JwtStrategy(opts, async (jwt_payload, done) => {
             try {
+                const userRepository = AppDataSource.getRepository("User");
                 const user = await userRepository.findOneBy({
                     employee_code: jwt_payload.sub,
                 });

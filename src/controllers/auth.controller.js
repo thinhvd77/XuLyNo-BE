@@ -6,7 +6,8 @@ exports.login = (req, res) => {
 
     const payload = {
         sub: user.employee_code,
-        username: user.username,
+        dept: user.dept,
+        fullname: user.fullname,
         role: user.role,
     };
 

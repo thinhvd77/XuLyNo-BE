@@ -1,0 +1,155 @@
+[
+    {
+        "employee_code": "642100564",
+        "fullname": "Phan Huy Giáp",
+        "username": "phanhuygiap",
+        "password": "password123",
+        "branch_code": "6421",
+        "dept": "KHDN",
+        "role": "employee"
+    },
+    {
+        "employee_code": "642100545",
+        "fullname": "Trịnh Duy Thành",
+        "username": "trinhduythanh",
+        "password": "password123",
+        "branch_code": "6421",
+        "dept": "KHCN",
+        "role": "employee"
+    },
+    {
+        "employee_code": "642100529",
+        "fullname": "Hoàng Trọng Sơn",
+        "username": "hoangtrongson",
+        "password": "password123",
+        "branch_code": "6421",
+        "dept": "KHDN",
+        "role": "employee"
+    },
+    {
+        "employee_code": "642100261",
+        "fullname": "Trương Nhật Duy",
+        "username": "truongnhatduy",
+        "password": "password123",
+        "branch_code": "6421",
+        "dept": "KHDN",
+        "role": "employee"
+    },
+    {
+        "employee_code": "642100553",
+        "fullname": "Lê Bá Khởi",
+        "username": "lebakhoi",
+        "password": "password123",
+        "branch_code": "6421",
+        "dept": "KHCN",
+        "role": "employee"
+    },
+    {
+        "employee_code": "642100549",
+        "fullname": "Lê Công Bách",
+        "username": "lecongbach",
+        "password": "password123",
+        "branch_code": "6421",
+        "dept": "KHCN",
+        "role": "employee"
+    },
+    {
+        "employee_code": "642100556",
+        "fullname": "Nguyễn Long",
+        "username": "nguyenlong",
+        "password": "password123",
+        "branch_code": "6421",
+        "dept": "KHDN",
+        "role": "employee"
+    },
+    {
+        "employee_code": "642100558",
+        "fullname": "Mã Thanh Minh Tiến",
+        "username": "mathanhminhtien",
+        "password": "password123",
+        "branch_code": "6421",
+        "dept": "KHDN",
+        "role": "employee"
+    },
+    {
+        "employee_code": "642100567",
+        "fullname": "Nguyễn Tuấn Lan",
+        "username": "nguyentuanlan",
+        "password": "password123",
+        "branch_code": "6421",
+        "dept": "KHCN",
+        "role": "employee"
+    },
+    {
+        "employee_code": "642100517",
+        "fullname": "Mai Khang Duy",
+        "username": "maikhangduy",
+        "password": "password123",
+        "branch_code": "6421",
+        "dept": "KHDN",
+        "role": "deputy_manager"
+    },
+    {
+        "employee_code": "642100535",
+        "fullname": "Nguyễn Tuấn Anh",
+        "username": "nguyentuananh",
+        "password": "password123",
+        "branch_code": "6421",
+        "dept": "KHDN",
+        "role": "employee"
+    },
+    {
+        "employee_code": "622100282",
+        "fullname": "Nguyễn Văn Sinh",
+        "username": "nguyenvansinh",
+        "password": "password123",
+        "branch_code": "6221",
+        "dept": "KHCN",
+        "role": "employee"
+    },
+    {
+        "employee_code": "622100302",
+        "fullname": "Trịnh Văn Tú",
+        "username": "trinhvantu",
+        "password": "password123",
+        "branch_code": "6221",
+        "dept": "KHCN",
+        "role": "employee"
+    },
+    {
+        "employee_code": "622100300",
+        "fullname": "Huỳnh Trung Nguyên",
+        "username": "huynhtrungnguyen",
+        "password": "password123",
+        "branch_code": "6221",
+        "dept": "KHCN",
+        "role": "employee"
+    },
+    {
+        "employee_code": "622100301",
+        "fullname": "Vũ Thị Kim Dung",
+        "username": "vuthikimdung",
+        "password": "password123",
+        "branch_code": "6221",
+        "dept": "KHCN",
+        "role": "manager"
+    },
+    {
+        "employee_code": "160500558",
+        "fullname": "Nguyễn Hải Chiến",
+        "username": "nguyenhaichien",
+        "password": "password123",
+        "branch_code": "1605",
+        "dept": "KHCN",
+        "role": "employee"
+    },
+    {
+        "employee_code": "160500556",
+        "fullname": "Bùi Đức Lợi",
+        "username": "buiducloi",
+        "password": "password123",
+        "branch_code": "1605",
+        "dept": "KHCN",
+        "role": "employee"
+    }
+]
