@@ -26,13 +26,11 @@ const DebtCase = new EntitySchema({
       scale: 2, // Dùng để lưu trữ chính xác giá trị tiền tệ
     },
     state: {
-      type: 'enum',
-      enum: ['Mới', 'Đang xử lý', 'Đã khởi kiện', 'Đang thi hành án', 'Hoàn tất'],
+      type: 'varchar',
       default: 'Mới',
     },
     case_type: {
-      type: 'enum',
-      enum: ['internal', 'external']
+      type: 'varchar'
     },
     created_date: {
       type: 'timestamptz',
