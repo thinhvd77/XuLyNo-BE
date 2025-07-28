@@ -99,3 +99,22 @@ exports.deleteUserById = async (id) => {
     await userRepository.remove(user);
     return { success: true, message: "Người dùng đã được xóa thành công." };
 }
+
+// update người dùng theo ID
+exports.updateUserById = async (id, dataUpdate) => {
+    console.log("2222", dataUpdate)
+    const userRepository = AppDataSource.getRepository("User");
+    const user = await userRepository.findOne({
+        where: { employee_code: id },
+    });
+
+    if (!user || user.employee_code === '99999999') {
+        throw new Error("Người dùng không tồn tại.");
+    }
+
+    //Cập nhật các trường mới
+    Object.assign(user, dataUpdate);
+
+    await userRepository.save(user);
+    return { success: true, message: "Người dùng đã được cập nhật thành công." };
+}

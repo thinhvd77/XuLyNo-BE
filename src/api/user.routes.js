@@ -71,4 +71,11 @@ router.delete(
     userController.deleteUserById // 3. Xử lý logic
 );
 
+router.patch(
+    "/:id",
+    protect, // 1. Yêu cầu đăng nhập
+    authorize("administrator"), // 2. Yêu cầu vai trò là Administrator
+    userController.updateUserById // 3. Xử lý logic
+);
+
 module.exports = router;
