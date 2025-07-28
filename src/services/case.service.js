@@ -282,16 +282,238 @@ exports.addCaseUpdate = async (caseId, content, uploader) => {
     return update;
 };
 
+/**
+ * MỚI: Cập nhật trạng thái hồ sơ
+ * @param {string} caseId - ID của hồ sơ cần cập nhật
+ * @param {string} status - Trạng thái mới
+ * @param {object} updater - Thông tin người dùng đang thực hiện cập nhật
+ */
+exports.updateCaseStatus = async (caseId, status, updater) => {
+    const caseRepository = AppDataSource.getRepository("DebtCase");
+    const caseUpdateRepository = AppDataSource.getRepository("CaseUpdate");
+
+    // 1. Kiểm tra xem hồ sơ có tồn tại không
+    const debtCase = await caseRepository.findOneBy({ case_id: caseId });
+    if (!debtCase) {
+        throw new Error("Không tìm thấy hồ sơ.");
+    }
+
+    // 2. Kiểm tra xem trạng thái có thay đổi không
+    if (debtCase.state === status) {
+        throw new Error("Trạng thái mới giống với trạng thái hiện tại.");
+    }
+
+    // 3. Cập nhật trạng thái
+    const oldStatus = debtCase.state;
+    await caseRepository.update(caseId, { 
+        state: status,
+        last_modified_date: new Date() 
+    });
+
+    // 4. Tạo log cập nhật trạng thái
+    const updateContent = `Cập nhật trạng thái từ "${oldStatus}" sang "${status}"`;
+    const updateData = {
+        case_id: caseId,
+        update_content: updateContent,
+        created_by_employee_code: updater.employee_code,
+    };
+
+    const update = caseUpdateRepository.create(updateData);
+    await caseUpdateRepository.save(update);
+
+    // 5. Lấy lại thông tin hồ sơ đã cập nhật
+    const updatedCase = await caseRepository.findOneBy({ case_id: caseId });
+    
+    return updatedCase;
+};
+
 exports.getUpdateContentByCase = async (caseId) => {
     const caseUpdateRepository = AppDataSource.getRepository("CaseUpdate");
     const contents = await caseUpdateRepository.find({
         where: {
-            case_id: caseId
+            case_id: caseId,
         },
         order: {
-            created_date: 'DESC'
-        }
+            created_date: "DESC",
+        },
     });
 
     return contents;
-}
+};
+
+exports.addDocumentToCase = async (caseId, fileInfo, uploader, documentType = 'other') => {
+    const caseDocumentRepository = AppDataSource.getRepository("CaseDocument");
+    const caseUpdateRepository = AppDataSource.getRepository("CaseUpdate");
+    const caseRepository = AppDataSource.getRepository("DebtCase");
+
+    // 1. Kiểm tra xem hồ sơ có tồn tại không
+    const debtCase = await caseRepository.findOneBy({ case_id: caseId });
+    if (!debtCase) {
+        throw new Error("Không tìm thấy hồ sơ.");
+    }
+
+    // Decode tên file để xử lý tiếng Việt đúng cách
+    const decodeFilename = (filename) => {
+        try {
+            // Thử decode URIComponent nếu có
+            return decodeURIComponent(filename);
+        } catch (e) {
+            // Nếu không decode được, thử với Buffer
+            try {
+                return Buffer.from(filename, 'latin1').toString('utf8');
+            } catch (e2) {
+                // Nếu vẫn không được, giữ nguyên
+                return filename;
+            }
+        }
+    };
+
+    const newDocumentData = {
+        case_id: caseId,
+        original_filename: decodeFilename(fileInfo.originalname),
+        file_path: fileInfo.path, // multer đã lưu file và trả về đường dẫn
+        mime_type: fileInfo.mimetype,
+        file_size: fileInfo.size,
+        document_type: documentType, // Sử dụng document_type được truyền vào
+        // uploaded_by_employee_code: uploader.employee_code,
+    };
+
+    const document = caseDocumentRepository.create(newDocumentData);
+    await caseDocumentRepository.save(document);
+
+    // 2. Tạo log cập nhật cho việc upload file
+    const getTypeName = (type) => {
+        switch (type) {
+            case 'enforcement': return 'Thi hành án';
+            case 'court': return 'Tòa án';
+            case 'notification': return 'Bán nợ';
+            case 'proactive': return 'Chủ động xử lý tài sản';
+            case 'collateral': return 'Tài sản đảm bảo';
+            case 'processed_collateral': return 'Tài sản đã xử lý';
+            case 'other': return 'Tài liệu khác';
+            default: return 'Không xác định';
+        }
+    };
+
+    const fileSizeKB = Math.round(fileInfo.size / 1024);
+    const updateContent = `Đã tải lên tài liệu "${fileInfo.originalname}" (${getTypeName(documentType)}, ${fileSizeKB} KB)`;
+    
+    const updateData = {
+        case_id: caseId,
+        update_content: updateContent,
+        created_by_employee_code: uploader.employee_code,
+    };
+
+    const update = caseUpdateRepository.create(updateData);
+    await caseUpdateRepository.save(update);
+
+    // 3. Cập nhật lại ngày last_modified_date của hồ sơ chính
+    await caseRepository.update(caseId, { last_modified_date: new Date() });
+
+    return document;
+};
+
+/**
+ * Lấy danh sách tài liệu đã tải lên cho một case
+ * @param {string} caseId - ID của case cần lấy danh sách tài liệu
+ */
+exports.getDocumentsByCase = async (caseId) => {
+    const caseDocumentRepository = AppDataSource.getRepository("CaseDocument");
+    
+    const documents = await caseDocumentRepository.find({
+        where: {
+            case_id: caseId,
+        },
+        order: {
+            upload_date: "DESC", // Sắp xếp theo ngày tải lên mới nhất
+        },
+    });
+
+    return documents;
+};
+
+/**
+ * Lấy thông tin chi tiết của một tài liệu theo ID
+ * @param {string} documentId - ID của tài liệu cần lấy thông tin
+ */
+exports.getDocumentById = async (documentId) => {
+    const caseDocumentRepository = AppDataSource.getRepository("CaseDocument");
+    
+    const document = await caseDocumentRepository.findOneBy({ 
+        document_id: documentId 
+    });
+
+    return document;
+};
+
+/**
+ * Xóa tài liệu theo ID
+ * @param {string} documentId - ID của tài liệu cần xóa
+ * @param {object} deleter - Thông tin người dùng đang thực hiện xóa
+ */
+exports.deleteDocumentById = async (documentId, deleter) => {
+    const caseDocumentRepository = AppDataSource.getRepository("CaseDocument");
+    const caseUpdateRepository = AppDataSource.getRepository("CaseUpdate");
+    const caseRepository = AppDataSource.getRepository("DebtCase");
+    const fs = require('fs');
+    
+    // Lấy thông tin tài liệu trước khi xóa
+    const document = await caseDocumentRepository.findOneBy({ 
+        document_id: documentId 
+    });
+
+    if (!document) {
+        throw new Error("Không tìm thấy tài liệu.");
+    }
+
+    // Lấy thông tin case để tạo log
+    const caseId = document.case_id;
+
+    // Xóa file vật lý nếu tồn tại
+    if (fs.existsSync(document.file_path)) {
+        try {
+            fs.unlinkSync(document.file_path);
+        } catch (fileError) {
+            console.error('Lỗi khi xóa file vật lý:', fileError);
+            // Không throw error ở đây để vẫn có thể xóa record trong DB
+        }
+    }
+
+    // Xóa record trong database
+    const result = await caseDocumentRepository.delete({ document_id: documentId });
+    
+    if (result.affected === 0) {
+        throw new Error("Không thể xóa tài liệu.");
+    }
+
+    // Tạo log cập nhật cho việc xóa file
+    const getTypeName = (type) => {
+        switch (type) {
+            case 'enforcement': return 'Thi hành án';
+            case 'court': return 'Tòa án';
+            case 'notification': return 'Báo nợ';
+            case 'proactive': return 'Chủ động XLN';
+            case 'collateral': return 'Tài sản đảm bảo';
+            case 'processed_collateral': return 'TS đã xử lý';
+            case 'other': return 'Tài liệu khác';
+            default: return 'Không xác định';
+        }
+    };
+
+    const fileSizeKB = Math.round(document.file_size / 1024);
+    const updateContent = `Đã xóa tài liệu "${document.original_filename}" (${getTypeName(document.document_type)}, ${fileSizeKB} KB)`;
+    
+    const updateData = {
+        case_id: caseId,
+        update_content: updateContent,
+        created_by_employee_code: deleter.employee_code,
+    };
+
+    const update = caseUpdateRepository.create(updateData);
+    await caseUpdateRepository.save(update);
+
+    // Cập nhật lại ngày last_modified_date của hồ sơ chính
+    await caseRepository.update(caseId, { last_modified_date: new Date() });
+
+    return result;
+};
