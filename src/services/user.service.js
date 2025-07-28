@@ -3,12 +3,13 @@ const bcrypt = require("bcrypt");
 const { Not } = require("typeorm");
 const User = require("../models/User").User;
 
+const userRepository = AppDataSource.getRepository("User");
+
 /**
  * Tạo một CBTD mới
  * @param {object} userData - Dữ liệu người dùng từ controller
  */
 exports.createUser = async (userData) => {
-    const userRepository = AppDataSource.getRepository("User");
     const { username, employee_code, password } = userData;
 
     // 1. Kiểm tra username hoặc mã nhân viên đã tồn tại chưa
