@@ -102,13 +102,12 @@ exports.deleteUserById = async (id) => {
 
 // update người dùng theo ID
 exports.updateUserById = async (id, dataUpdate) => {
-    console.log("2222", dataUpdate)
     const userRepository = AppDataSource.getRepository("User");
     const user = await userRepository.findOne({
         where: { employee_code: id },
     });
 
-    if (!user || user.employee_code === '99999999') {
+    if (!user) {
         throw new Error("Người dùng không tồn tại.");
     }
 
