@@ -3,11 +3,53 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
-// Đảm bảo thư mục uploads tồn tại
-const uploadDir = 'uploads/';
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir);
+// Base directory cho file uploads
+const baseUploadDir = 'FilesXuLyNo/';
+
+// Đảm bảo base directory tồn tại
+if (!fs.existsSync(baseUploadDir)) {
+    fs.mkdirSync(baseUploadDir, { recursive: true });
 }
+
+// Helper function để tạo thư mục nếu chưa tồn tại
+const ensureDirectoryExists = (dirPath) => {
+    if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+    }
+};
+
+// Helper function để sanitize tên thư mục/file
+const sanitizeFileName = (name) => {
+    // Loại bỏ các ký tự không hợp lệ cho tên file/thư mục
+    return name.replace(/[<>:"/\\|?*]/g, '_').trim();
+};
+
+// Helper function để xác định loại case (nội bảng/ngoại bảng)
+const getCaseType = (caseData) => {
+    // Dựa vào field case_type trong database
+    if (caseData.case_type === 'external') {
+        return 'ngoại bảng';
+    } else if (caseData.case_type === 'internal') {
+        return 'nội bảng';
+    } else {
+        // Mặc định là nội bảng nếu không xác định được
+        return 'nội bảng';
+    }
+};
+
+// Helper function để lấy tên document type folder
+const getDocumentTypeFolder = (documentType) => {
+    const typeMapping = {
+        'court': 'Tài liệu Tòa án',
+        'enforcement': 'Tài liệu Thi hành án', 
+        'notification': 'Tài liệu Bán nợ',
+        'proactive': 'Tài liệu Chủ động xử lý tài sản',
+        'collateral': 'Tài sản đảm bảo',
+        'processed_collateral': 'Tài liệu tài sản đã xử lý',
+        'other': 'Tài liệu khác'
+    };
+    return typeMapping[documentType] || 'Tài liệu khác';
+};
 
 // Danh sách MIME types được phép
 const allowedMimeTypes = [
@@ -50,17 +92,64 @@ const fileFilter = (req, file, cb) => {
 
 // Cấu hình nơi lưu trữ và cách đặt tên file
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadDir); // Lưu file vào thư mục 'uploads/'
+  destination: async function (req, file, cb) {
+    try {
+        // Lấy thông tin cần thiết từ request
+        const caseId = req.params.caseId;
+        const documentType = req.body.document_type || 'other';
+        const uploader = req.user; // Thông tin CBTD từ JWT token
+        
+        if (!caseId || !uploader) {
+            return cb(new Error('Thiếu thông tin case ID hoặc user'), null);
+        }
+
+        // Lấy thông tin case từ database
+        const { AppDataSource } = require('../config/dataSource');
+        const caseRepository = AppDataSource.getRepository("DebtCase");
+        const caseData = await caseRepository.findOneBy({ case_id: caseId });
+        
+        if (!caseData) {
+            return cb(new Error('Không tìm thấy case'), null);
+        }
+
+        // Tạo đường dẫn theo format: FilesXuLyNo/Tên CBTD/Mã khách hàng/(nội bảng/ngoại bảng)/document type/
+        const cbtdName = sanitizeFileName(uploader.fullname || uploader.employee_code);
+        const customerCode = sanitizeFileName(caseData.customer_code);
+        const caseType = getCaseType(caseData);
+        const docTypeFolder = sanitizeFileName(getDocumentTypeFolder(documentType));
+        
+        const uploadPath = path.join(
+            baseUploadDir,
+            cbtdName,
+            customerCode,
+            caseType,
+            docTypeFolder
+        );
+
+        // Tạo thư mục nếu chưa tồn tại
+        ensureDirectoryExists(uploadPath);
+        
+        console.log('File sẽ được lưu tại:', uploadPath);
+        cb(null, uploadPath);
+        
+    } catch (error) {
+        console.error('Lỗi khi tạo đường dẫn lưu file:', error);
+        cb(error, null);
+    }
   },
   filename: function (req, file, cb) {
-    // Tạo tên file duy nhất nhưng vẫn giữ extension gốc để hỗ trợ preview tốt hơn
-    const uniqueSuffix = req.params.caseId + '-' + Date.now();
-    const randomId = crypto.randomBytes(8).toString('hex');
+    // Tạo tên file với timestamp và random string để tránh trùng lặp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const randomId = crypto.randomBytes(4).toString('hex');
     const extension = path.extname(file.originalname);
+    const baseName = path.basename(file.originalname, extension);
+    const sanitizedBaseName = sanitizeFileName(baseName);
     
-    // Format: caseId-timestamp-randomId.extension
-    cb(null, `${uniqueSuffix}-${randomId}${extension}`);
+    // Format: originalName_timestamp_randomId.extension
+    const finalFileName = `${sanitizedBaseName}_${timestamp}_${randomId}${extension}`;
+    
+    console.log('Tên file sẽ được lưu:', finalFileName);
+    cb(null, finalFileName);
   }
 });
 

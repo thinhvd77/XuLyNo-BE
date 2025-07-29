@@ -1,6 +1,9 @@
 const AppDataSource = require("../config/dataSource");
 const xlsx = require("xlsx");
 const { Not } = require("typeorm");
+const fs = require('fs');
+const path = require('path');
+const { getRelativeFilePath, getAbsoluteFilePath } = require('../utils/filePathHelper');
 
 /**
  * Xử lý import hồ sơ nợ từ file Excel, tổng hợp dư nợ theo mã khách hàng
@@ -133,6 +136,199 @@ exports.findCasesByEmployeeCode = async (employeeCode) => {
 };
 
 /**
+ * MỚI: Tìm tất cả hồ sơ với phân trang và bộ lọc (dành cho Ban Giám Đốc)
+ */
+exports.findAllCases = async (page = 1, filters = {}, limit = 20, sorting = {}) => {
+    const caseRepository = AppDataSource.getRepository("DebtCase");
+    const offset = (page - 1) * limit;
+
+    // Tạo query builder
+    let queryBuilder = caseRepository
+        .createQueryBuilder("debt_cases")
+        .leftJoinAndSelect("debt_cases.officer", "officer");
+
+    // Áp dụng bộ lọc
+    if (filters.search) {
+        queryBuilder = queryBuilder.andWhere(
+            "(debt_cases.customer_name ILIKE :search OR debt_cases.customer_code ILIKE :search)",
+            { search: `%${filters.search}%` }
+        );
+    }
+
+    if (filters.type) {
+        queryBuilder = queryBuilder.andWhere("debt_cases.case_type = :type", { type: filters.type });
+    }
+
+    if (filters.status) {
+        queryBuilder = queryBuilder.andWhere("debt_cases.state = :status", { status: filters.status });
+    }
+
+    // Branch-based filtering: BGĐ thuộc chi nhánh khác không phải 6421 chỉ xem cases thuộc branch đó
+    if (filters.branch_code) {
+        queryBuilder = queryBuilder.andWhere("officer.branch_code = :branch_code", { branch_code: filters.branch_code });
+    }
+
+    // Áp dụng sorting
+    if (sorting.sortBy && sorting.sortOrder) {
+        let orderByField;
+        let orderDirection = sorting.sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+        
+        // Map frontend field names to database column names
+        switch (sorting.sortBy) {
+            case 'customer_code':
+                orderByField = 'debt_cases.customer_code';
+                break;
+            case 'customer_name':
+                orderByField = 'debt_cases.customer_name';
+                break;
+            case 'outstanding_debt':
+                orderByField = 'debt_cases.outstanding_debt';
+                break;
+            case 'case_type':
+                orderByField = 'debt_cases.case_type';
+                break;
+            case 'state':
+                orderByField = 'debt_cases.state';
+                break;
+            case 'created_date':
+                orderByField = 'debt_cases.created_date';
+                break;
+            case 'officer':
+                orderByField = 'officer.fullname';
+                break;
+            default:
+                orderByField = 'debt_cases.last_modified_date';
+                orderDirection = 'DESC';
+        }
+        
+        queryBuilder = queryBuilder.orderBy(orderByField, orderDirection);
+    } else {
+        // Default sorting
+        queryBuilder = queryBuilder.orderBy("debt_cases.last_modified_date", "DESC");
+    }
+
+    // Đếm tổng số record
+    const totalCases = await queryBuilder.getCount();
+    const totalPages = Math.ceil(totalCases / limit);
+
+    // Lấy dữ liệu với phân trang
+    const cases = await queryBuilder
+        .skip(offset)
+        .take(limit)
+        .getMany();
+
+    return {
+        success: true,
+        data: {
+            cases,
+            currentPage: parseInt(page),
+            totalPages,
+            totalCases,
+            limit
+        }
+    };
+};
+
+/**
+ * Lấy danh sách hồ sơ theo phòng ban cho Manager/Deputy Manager
+ * Hiển thị cases được quản lý bởi CBTD có cùng phòng ban và cùng branch_code
+ */
+exports.findDepartmentCases = async (page = 1, filters = {}, limit = 20, sorting = {}) => {
+    const caseRepository = AppDataSource.getRepository("DebtCase");
+    const offset = (page - 1) * limit;
+
+    // Tạo query builder với join officer
+    let queryBuilder = caseRepository
+        .createQueryBuilder("debt_cases")
+        .leftJoinAndSelect("debt_cases.officer", "officer");
+
+    // Áp dụng bộ lọc cơ bản
+    if (filters.search) {
+        queryBuilder = queryBuilder.andWhere(
+            "(debt_cases.customer_name ILIKE :search OR debt_cases.customer_code ILIKE :search)",
+            { search: `%${filters.search}%` }
+        );
+    }
+
+    if (filters.type) {
+        queryBuilder = queryBuilder.andWhere("debt_cases.case_type = :type", { type: filters.type });
+    }
+
+    if (filters.status) {
+        queryBuilder = queryBuilder.andWhere("debt_cases.state = :status", { status: filters.status });
+    }
+
+    // Department-based filtering: Chỉ hiển thị cases được quản lý bởi CBTD có cùng phòng ban và branch_code
+    if (filters.department && filters.branch_code) {
+        queryBuilder = queryBuilder.andWhere(
+            "officer.dept = :department AND officer.branch_code = :branch_code", 
+            { 
+                department: filters.department,
+                branch_code: filters.branch_code 
+            }
+        );
+    }
+
+    // Áp dụng sorting (tương tự như findAllCases)
+    if (sorting.sortBy && sorting.sortOrder) {
+        let orderByField;
+        let orderDirection = sorting.sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+        
+        switch (sorting.sortBy) {
+            case 'customer_code':
+                orderByField = 'debt_cases.customer_code';
+                break;
+            case 'customer_name':
+                orderByField = 'debt_cases.customer_name';
+                break;
+            case 'outstanding_debt':
+                orderByField = 'debt_cases.outstanding_debt';
+                break;
+            case 'case_type':
+                orderByField = 'debt_cases.case_type';
+                break;
+            case 'state':
+                orderByField = 'debt_cases.state';
+                break;
+            case 'created_date':
+                orderByField = 'debt_cases.created_date';
+                break;
+            case 'officer':
+                orderByField = 'officer.fullname';
+                break;
+            default:
+                orderByField = 'debt_cases.last_modified_date';
+                orderDirection = 'DESC';
+        }
+        
+        queryBuilder = queryBuilder.orderBy(orderByField, orderDirection);
+    } else {
+        queryBuilder = queryBuilder.orderBy("debt_cases.last_modified_date", "DESC");
+    }
+
+    // Đếm tổng số record
+    const totalCases = await queryBuilder.getCount();
+    const totalPages = Math.ceil(totalCases / limit);
+
+    // Lấy dữ liệu với phân trang
+    const cases = await queryBuilder
+        .skip(offset)
+        .take(limit)
+        .getMany();
+
+    return {
+        success: true,
+        data: {
+            cases,
+            currentPage: parseInt(page),
+            totalPages,
+            totalCases,
+            limit
+        }
+    };
+};
+
+/**
  * Xử lý import hồ sơ nợ từ file Excel, tổng hợp dư nợ theo mã khách hàng
  * @param {Buffer} fileBuffer - Nội dung file Excel từ multer
  */
@@ -241,8 +437,27 @@ exports.getAllCases = async () => {
 
 exports.getCaseById = async (caseId) => {
     const caseRepository = AppDataSource.getRepository("DebtCase");
-    const debtCase = await caseRepository.findOneBy({ case_id: caseId });
+    const debtCase = await caseRepository.findOne({
+        where: { case_id: caseId },
+        relations: ['officer'] // Include thông tin người phụ trách
+    });
     return debtCase;
+};
+
+/**
+ * MỚI: Lấy danh sách cập nhật của hồ sơ
+ * @param {string} caseId - ID của hồ sơ
+ */
+exports.getCaseUpdates = async (caseId) => {
+    const caseUpdateRepository = AppDataSource.getRepository("CaseUpdate");
+    
+    const updates = await caseUpdateRepository.find({
+        where: { case_id: caseId },
+        relations: ['officer'], // Load thông tin officer thay vì author
+        order: { created_date: 'DESC' } // Sắp xếp theo ngày tạo mới nhất
+    });
+    
+    return updates;
 };
 
 /**
@@ -303,13 +518,28 @@ exports.updateCaseStatus = async (caseId, status, updater) => {
         throw new Error("Trạng thái mới giống với trạng thái hiện tại.");
     }
 
-    // 3. Cập nhật trạng thái
-    const oldStatus = debtCase.state;
+    // map trạng thái sang tiếng Việt
+    const statusMap = {
+        'beingFollowedUp': 'Đang đôn đốc',
+        'beingSued': 'Đang khởi kiện',
+        'awaitingJudgmentEffect': 'Chờ hiệu lực án',
+        'beingExecuted': 'Đang thi hành án',
+        'proactivelySettled': 'Chủ động XLTS',
+        'debtSold': 'Bán nợ',
+        'amcHired': 'Thuê AMC XLN'
+    }
+
+    // 3. Kiểm tra trạng thái hợp lệ
+    if (!Object.keys(statusMap).includes(status)) {
+        throw new Error("Trạng thái không hợp lệ.");
+    }
+
     await caseRepository.update(caseId, { 
         state: status,
         last_modified_date: new Date() 
     });
-
+    status = statusMap[status];
+    const oldStatus = statusMap[debtCase.state] || debtCase.state;
     // 4. Tạo log cập nhật trạng thái
     const updateContent = `Cập nhật trạng thái từ "${oldStatus}" sang "${status}"`;
     const updateData = {
@@ -371,7 +601,7 @@ exports.addDocumentToCase = async (caseId, fileInfo, uploader, documentType = 'o
     const newDocumentData = {
         case_id: caseId,
         original_filename: decodeFilename(fileInfo.originalname),
-        file_path: fileInfo.path, // multer đã lưu file và trả về đường dẫn
+        file_path: getRelativeFilePath(fileInfo.path), // Lưu relative path thay vì absolute path
         mime_type: fileInfo.mimetype,
         file_size: fileInfo.size,
         document_type: documentType, // Sử dụng document_type được truyền vào
@@ -380,6 +610,15 @@ exports.addDocumentToCase = async (caseId, fileInfo, uploader, documentType = 'o
 
     const document = caseDocumentRepository.create(newDocumentData);
     await caseDocumentRepository.save(document);
+
+    // Log thông tin file đã lưu
+    console.log('Document saved with structured path:', {
+        originalName: fileInfo.originalname,
+        relativePath: getRelativeFilePath(fileInfo.path),
+        absolutePath: fileInfo.path,
+        documentType: documentType,
+        caseId: caseId
+    });
 
     // 2. Tạo log cập nhật cho việc upload file
     const getTypeName = (type) => {
@@ -418,6 +657,7 @@ exports.addDocumentToCase = async (caseId, fileInfo, uploader, documentType = 'o
  * @param {string} caseId - ID của case cần lấy danh sách tài liệu
  */
 exports.getDocumentsByCase = async (caseId) => {
+    console.log('getDocumentsByCase called with caseId:', caseId);
     const caseDocumentRepository = AppDataSource.getRepository("CaseDocument");
     
     const documents = await caseDocumentRepository.find({
@@ -429,6 +669,7 @@ exports.getDocumentsByCase = async (caseId) => {
         },
     });
 
+    console.log('Found documents:', documents.length);
     return documents;
 };
 
@@ -470,13 +711,17 @@ exports.deleteDocumentById = async (documentId, deleter) => {
     const caseId = document.case_id;
 
     // Xóa file vật lý nếu tồn tại
-    if (fs.existsSync(document.file_path)) {
+    const absolutePath = getAbsoluteFilePath(document.file_path);
+    if (fs.existsSync(absolutePath)) {
         try {
-            fs.unlinkSync(document.file_path);
+            fs.unlinkSync(absolutePath);
+            console.log('File deleted from:', absolutePath);
         } catch (fileError) {
             console.error('Lỗi khi xóa file vật lý:', fileError);
             // Không throw error ở đây để vẫn có thể xóa record trong DB
         }
+    } else {
+        console.log('File not found for deletion:', absolutePath);
     }
 
     // Xóa record trong database

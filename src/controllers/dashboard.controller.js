@@ -12,3 +12,17 @@ exports.getDashboardStats = async (req, res) => {
         res.status(500).json({ success: false, message: "Đã có lỗi xảy ra trên server." });
     }
 };
+
+exports.getDirectorStats = async (req, res) => {
+    try {
+        const { period = 'month' } = req.query;
+        const stats = await dashboardService.getDirectorStats(period);
+        res.status(200).json({
+            success: true,
+            data: stats,
+        });
+    } catch (error) {
+        console.error("Lỗi khi lấy dữ liệu dashboard giám đốc:", error);
+        res.status(500).json({ success: false, message: "Đã có lỗi xảy ra trên server." });
+    }
+};

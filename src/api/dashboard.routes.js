@@ -12,4 +12,13 @@ router.get(
     dashboardController.getDashboardStats
 );
 
+// Định nghĩa route: GET /api/dashboard/director-stats
+// API này dành riêng cho Ban Giám Đốc
+router.get(
+    '/director-stats',
+    protect, // Yêu cầu đăng nhập
+    authorize('director', 'deputy_director', 'administrator'), // Chỉ Ban Giám Đốc được phép
+    dashboardController.getDirectorStats
+);
+
 module.exports = router;

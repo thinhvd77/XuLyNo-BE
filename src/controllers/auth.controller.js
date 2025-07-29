@@ -9,6 +9,7 @@ exports.login = (req, res) => {
         dept: user.dept,
         fullname: user.fullname,
         role: user.role,
+        branch_code: user.branch_code,
     };
 
     // Ký token

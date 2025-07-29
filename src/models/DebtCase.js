@@ -27,7 +27,7 @@ const DebtCase = new EntitySchema({
     },
     state: {
       type: 'varchar',
-      default: 'Mới',
+      default: 'beingFollowedUp', // Trạng thái mặc định là "Đang đôn đốc"
     },
     case_type: {
       type: 'varchar'
