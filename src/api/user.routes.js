@@ -30,6 +30,35 @@ const createUserValidationRules = [
         .withMessage("Vai trò không hợp lệ."),
 ];
 
+// Validation rules for updating a user
+const updateUserValidationRules = [
+    body("employee_code").optional().notEmpty().withMessage("Mã nhân viên không được để trống."),
+    body("username")
+        .optional()
+        .isLength({ min: 4 })
+        .withMessage("Tên đăng nhập phải có ít nhất 4 ký tự."),
+    body("password")
+        .optional()
+        .isLength({ min: 6 })
+        .withMessage("Mật khẩu phải có ít nhất 6 ký tự."),
+    body("fullname").optional().notEmpty().withMessage("Họ và tên không được để trống."),
+    body("dept")
+        .optional()
+        .isIn(["KHCN", "KHDN", "KH&QLRR", "BGĐ", "IT"])
+        .withMessage("Phòng ban không hợp lệ."),
+    body("role")
+        .optional()
+        .isIn([
+            "employee",
+            "deputy_manager",
+            "manager",
+            "deputy_director",
+            "director",
+            "administrator",
+        ])
+        .withMessage("Vai trò không hợp lệ."),
+];
+
 // Định nghĩa route: POST /api/users/create
 router.post(
     "/create",
@@ -62,6 +91,23 @@ router.get(
     protect, // 1. Yêu cầu đăng nhập
     authorize("administrator", "director", "deputy_director"), // 2. Yêu cầu vai trò là Administrator, Giám đốc hoặc Phó giám đốc
     userController.getUserById // 3. Xử lý logic
+);
+
+// Định nghĩa route: PUT /api/users/:id - Update user
+router.put(
+    "/:id",
+    protect, // 1. Yêu cầu đăng nhập
+    authorize("administrator"), // 2. Chỉ Administrator được phép update
+    updateUserValidationRules, // 3. Validation rules cho update
+    userController.updateUser // 4. Xử lý logic
+);
+
+// Định nghĩa route: PATCH /api/users/:id/status - Toggle user status (enable/disable)
+router.patch(
+    "/:id/status",
+    protect, // 1. Yêu cầu đăng nhập
+    authorize("administrator"), // 2. Chỉ Administrator được phép thay đổi status
+    userController.toggleUserStatus // 3. Xử lý logic
 );
 
 router.delete(
