@@ -4,6 +4,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { createChildLogger } = require("../config/logger");
+
+const logger = createChildLogger("fileManager.service");
 const { getAbsoluteFilePath, extractFilePathInfo, getFilePathBreadcrumb } = require('../utils/filePathHelper');
 
 /**
@@ -196,7 +199,7 @@ const cleanupEmptyDirectories = (dirPath) => {
         const updatedItems = fs.readdirSync(dirPath);
         if (updatedItems.length === 0) {
             fs.rmdirSync(dirPath);
-            console.log('Removed empty directory:', dirPath);
+            logger.info('Empty directory removed', { dirPath });
         }
     } catch (error) {
         console.error('Error cleaning up directory:', dirPath, error);

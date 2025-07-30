@@ -2,6 +2,9 @@ const AppDataSource = require("../config/dataSource");
 const bcrypt = require("bcrypt");
 const { Not } = require("typeorm");
 const User = require("../models/User").User;
+const { createChildLogger } = require("../config/logger");
+
+const logger = createChildLogger("user.service");
 
 /**
  * Tạo một CBTD mới

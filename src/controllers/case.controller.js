@@ -3,20 +3,30 @@ const fileManagerService = require("../services/fileManager.service");
 const { validationResult } = require("express-validator");
 const multer = require("multer");
 const { moveFileToFinalDestination, getDocumentTypeFolder } = require("../config/multer.config");
+const { createChildLogger } = require("../config/logger");
+const { AppError, asyncHandler } = require("../middleware/errorHandler");
+
+const logger = createChildLogger("case.controller");
 
 /**
  * MỚI: Xử lý request upload file Excel
  */
-exports.importCases = async (req, res) => {
+exports.importCases = asyncHandler(async (req, res, next) => {
     try {
         if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                message: "Vui lòng tải lên một file Excel.",
+            logger.warn("Import cases attempted without file", {
+                userId: req.user?.employee_code || 'unknown'
             });
+            return next(new AppError("Vui lòng tải lên một file Excel.", 400));
         }
 
         const result = await caseService.importCasesFromExcel(req.file.buffer);
+
+        logger.info("Cases imported successfully", {
+            fileName: req.file.originalname,
+            importedBy: req.user?.employee_code || 'unknown',
+            result: result
+        });
 
         res.status(200).json({
             success: true,
@@ -24,67 +34,84 @@ exports.importCases = async (req, res) => {
             data: result,
         });
     } catch (error) {
-        console.error("Lỗi khi import file Excel:", error);
-        res.status(500).json({
-            success: false,
-            message: "Đã có lỗi xảy ra trên server.",
+        logger.error("Failed to import cases from Excel", {
+            fileName: req.file?.originalname || 'unknown',
+            error: error.message,
+            importedBy: req.user?.employee_code || 'unknown'
         });
+        return next(new AppError("Đã có lỗi xảy ra trên server.", 500));
     }
-};
+});
 
-exports.importExternalCases = async (req, res) => {
+exports.importExternalCases = asyncHandler(async (req, res, next) => {
     try {
         if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                message: "Vui lòng tải lên một file Excel.",
+            logger.warn("Import external cases attempted without file", {
+                userId: req.user?.employee_code || 'unknown'
             });
+            return next(new AppError("Vui lòng tải lên một file Excel.", 400));
         }
 
         const result = await caseService.importExternalCasesFromExcel(
             req.file.buffer
         );
 
+        logger.info("External cases imported successfully", {
+            fileName: req.file.originalname,
+            importedBy: req.user?.employee_code || 'unknown',
+            result: result
+        });
+
         res.status(200).json({
             success: true,
             message: "Import hoàn tất!",
             data: result,
         });
     } catch (error) {
-        console.error("Lỗi khi import file Excel:", error);
-        res.status(500).json({
-            success: false,
-            message: "Đã có lỗi xảy ra trên server.",
+        logger.error("Failed to import external cases from Excel", {
+            fileName: req.file?.originalname || 'unknown',
+            error: error.message,
+            importedBy: req.user?.employee_code || 'unknown'
         });
+        return next(new AppError("Đã có lỗi xảy ra trên server.", 500));
     }
-};
+});
 
 /**
  * MỚI: Lấy danh sách hồ sơ của người dùng đang đăng nhập
  */
-exports.getMyCases = async (req, res) => {
+exports.getMyCases = asyncHandler(async (req, res, next) => {
     try {
         // req.user được Passport.js thêm vào sau khi xác thực JWT thành công
         const employeeCode = req.user.employee_code;
 
         if (!employeeCode) {
-            return res
-                .status(400)
-                .json({ message: "Không tìm thấy thông tin nhân viên." });
+            logger.warn("Get my cases attempted without employee code", {
+                user: req.user
+            });
+            return next(new AppError("Không tìm thấy thông tin nhân viên.", 400));
         }
 
         const cases = await caseService.findCasesByEmployeeCode(employeeCode);
+        
+        logger.info("User cases retrieved successfully", {
+            employeeCode: employeeCode,
+            casesCount: cases.length
+        });
+
         res.status(200).json(cases);
     } catch (error) {
-        console.error("Lỗi khi lấy danh sách hồ sơ:", error);
-        res.status(500).json({ message: "Đã có lỗi xảy ra trên server." });
+        logger.error("Failed to retrieve user cases", {
+            employeeCode: req.user?.employee_code || 'unknown',
+            error: error.message
+        });
+        return next(new AppError("Đã có lỗi xảy ra trên server.", 500));
     }
-};
-
+});
 /**
  * MỚI: Lấy tất cả danh sách hồ sơ (dành cho Ban Giám Đốc)
  */
-exports.getAllCases = async (req, res) => {
+exports.getAllCases = asyncHandler(async (req, res, next) => {
     try {
         const { 
             page = 1, 
@@ -101,12 +128,24 @@ exports.getAllCases = async (req, res) => {
         const sorting = { sortBy, sortOrder };
         
         const cases = await caseService.findAllCases(page, filters, parseInt(limit), sorting);
+        
+        logger.info("All cases retrieved successfully", {
+            requestedBy: req.user?.employee_code || 'unknown',
+            casesCount: cases.data?.length || 0,
+            page: page,
+            filters: filters
+        });
+
         res.status(200).json(cases);
     } catch (error) {
-        console.error("Lỗi khi lấy danh sách tất cả hồ sơ:", error);
-        res.status(500).json({ message: "Đã có lỗi xảy ra trên server." });
+        logger.error("Failed to retrieve all cases", {
+            requestedBy: req.user?.employee_code || 'unknown',
+            error: error.message,
+            filters: req.query
+        });
+        return next(new AppError("Đã có lỗi xảy ra trên server.", 500));
     }
-};
+});
 
 /**
  * MỚI: Lấy danh sách hồ sơ theo phòng ban (dành cho Manager/Deputy Manager)

@@ -4,6 +4,9 @@ const { Not } = require("typeorm");
 const fs = require('fs');
 const path = require('path');
 const { getRelativeFilePath, getAbsoluteFilePath } = require('../utils/filePathHelper');
+const { createChildLogger } = require("../config/logger");
+
+const logger = createChildLogger("case.service");
 
 /**
  * Xử lý import hồ sơ nợ từ file Excel, tổng hợp dư nợ theo mã khách hàng
@@ -612,7 +615,7 @@ exports.addDocumentToCase = async (caseId, fileInfo, uploader, documentType = 'o
     await caseDocumentRepository.save(document);
 
     // Log thông tin file đã lưu
-    console.log('Document saved with structured path:', {
+    logger.info('Document saved with structured path', {
         originalName: fileInfo.originalname,
         relativePath: getRelativeFilePath(fileInfo.path),
         absolutePath: fileInfo.path,
@@ -657,7 +660,7 @@ exports.addDocumentToCase = async (caseId, fileInfo, uploader, documentType = 'o
  * @param {string} caseId - ID của case cần lấy danh sách tài liệu
  */
 exports.getDocumentsByCase = async (caseId) => {
-    console.log('getDocumentsByCase called with caseId:', caseId);
+    logger.debug('getDocumentsByCase called', { caseId });
     const caseDocumentRepository = AppDataSource.getRepository("CaseDocument");
     
     const documents = await caseDocumentRepository.find({
@@ -669,7 +672,7 @@ exports.getDocumentsByCase = async (caseId) => {
         },
     });
 
-    console.log('Found documents:', documents.length);
+    logger.debug('Documents found', { count: documents.length, caseId });
     return documents;
 };
 
@@ -715,13 +718,13 @@ exports.deleteDocumentById = async (documentId, deleter) => {
     if (fs.existsSync(absolutePath)) {
         try {
             fs.unlinkSync(absolutePath);
-            console.log('File deleted from:', absolutePath);
+            logger.info('File deleted successfully', { absolutePath });
         } catch (fileError) {
             console.error('Lỗi khi xóa file vật lý:', fileError);
             // Không throw error ở đây để vẫn có thể xóa record trong DB
         }
     } else {
-        console.log('File not found for deletion:', absolutePath);
+        logger.warn('File not found for deletion', { absolutePath });
     }
 
     // Xóa record trong database
