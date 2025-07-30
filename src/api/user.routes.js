@@ -16,7 +16,7 @@ const createUserValidationRules = [
         .withMessage("Mật khẩu phải có ít nhất 6 ký tự."),
     body("fullname").notEmpty().withMessage("Họ và tên là bắt buộc."),
     body("dept")
-        .isIn(["KHCN", "KHDN", "KH", "KH&QLRR", "BGĐ", "IT"])
+        .isIn(["KHCN", "KHDN", "KH", "PGD", "KH&QLRR", "BGĐ", "IT"])
         .withMessage("Phòng ban không hợp lệ."),
     body("role")
         .isIn([
@@ -44,7 +44,7 @@ const updateUserValidationRules = [
     body("fullname").optional().notEmpty().withMessage("Họ và tên không được để trống."),
     body("dept")
         .optional()
-        .isIn(["KHCN", "KHDN", "KH&QLRR", "BGĐ", "IT"])
+        .isIn(["KHCN", "KHDN","KH", "PGD", "KH&QLRR", "BGĐ", "IT"])
         .withMessage("Phòng ban không hợp lệ."),
     body("role")
         .optional()
