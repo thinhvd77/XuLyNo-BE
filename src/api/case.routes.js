@@ -5,11 +5,20 @@ const passport = require('passport');
 const multer = require('multer'); // MỚI: Import multer
 const caseController = require('../controllers/case.controller');
 const { protect, authorize } = require('../middleware/auth.middleware');
-const uploadFileToDisk = require('../config/multer.config');
+const { upload: uploadFileToDisk } = require('../config/multer.config');
 
 // MỚI: Cấu hình multer để lưu file vào bộ nhớ
 const memoryStorage = multer.memoryStorage();
 const uploadExcelInMemory  = multer({ storage: memoryStorage });
+
+// Middleware để log request body cho debugging
+const logRequestBody = (req, res, next) => {
+    console.log('=== REQUEST DEBUG ===');
+    console.log('Headers:', req.headers);
+    console.log('Body before multer:', req.body);
+    console.log('====================');
+    next();
+};
 
 // MỚI: Route để lấy danh sách hồ sơ của CBTD
 // GET /api/cases/my-cases
@@ -86,6 +95,7 @@ router.patch(
 router.post(
   '/:caseId/documents',
   protect, // Yêu cầu đăng nhập
+  logRequestBody, // Debug middleware
   uploadFileToDisk.single('documentFile'), // Middleware của multer, 'documentFile' là tên field trong form-data
   caseController.uploadDocument
 );

@@ -92,50 +92,12 @@ const fileFilter = (req, file, cb) => {
 
 // Cấu hình nơi lưu trữ và cách đặt tên file
 const storage = multer.diskStorage({
-  destination: async function (req, file, cb) {
-    try {
-        // Lấy thông tin cần thiết từ request
-        const caseId = req.params.caseId;
-        const documentType = req.body.document_type || 'other';
-        const uploader = req.user; // Thông tin CBTD từ JWT token
-        
-        if (!caseId || !uploader) {
-            return cb(new Error('Thiếu thông tin case ID hoặc user'), null);
-        }
-
-        // Lấy thông tin case từ database
-        const { AppDataSource } = require('../config/dataSource');
-        const caseRepository = AppDataSource.getRepository("DebtCase");
-        const caseData = await caseRepository.findOneBy({ case_id: caseId });
-        
-        if (!caseData) {
-            return cb(new Error('Không tìm thấy case'), null);
-        }
-
-        // Tạo đường dẫn theo format: FilesXuLyNo/Tên CBTD/Mã khách hàng/(nội bảng/ngoại bảng)/document type/
-        const cbtdName = sanitizeFileName(uploader.fullname || uploader.employee_code);
-        const customerCode = sanitizeFileName(caseData.customer_code);
-        const caseType = getCaseType(caseData);
-        const docTypeFolder = sanitizeFileName(getDocumentTypeFolder(documentType));
-        
-        const uploadPath = path.join(
-            baseUploadDir,
-            cbtdName,
-            customerCode,
-            caseType,
-            docTypeFolder
-        );
-
-        // Tạo thư mục nếu chưa tồn tại
-        ensureDirectoryExists(uploadPath);
-        
-        console.log('File sẽ được lưu tại:', uploadPath);
-        cb(null, uploadPath);
-        
-    } catch (error) {
-        console.error('Lỗi khi tạo đường dẫn lưu file:', error);
-        cb(error, null);
-    }
+  destination: function (req, file, cb) {
+    // Lưu tạm thời vào thư mục temp, sau đó sẽ move trong controller
+    const tempDir = path.join(baseUploadDir, 'temp');
+    ensureDirectoryExists(tempDir);
+    console.log('File sẽ được lưu tạm tại:', tempDir);
+    cb(null, tempDir);
   },
   filename: function (req, file, cb) {
     // Tạo tên file với timestamp và random string để tránh trùng lặp
@@ -162,4 +124,40 @@ const upload = multer({
     fileFilter: fileFilter
 });
 
-module.exports = upload;
+// Helper function để move file từ temp đến đúng vị trí
+const moveFileToFinalDestination = async (tempFilePath, caseData, uploader, documentType) => {
+    try {
+        const cbtdName = sanitizeFileName(uploader.fullname || uploader.employee_code);
+        const customerCode = sanitizeFileName(caseData.customer_code);
+        const caseType = getCaseType(caseData);
+        const docTypeFolder = sanitizeFileName(getDocumentTypeFolder(documentType));
+        
+        const finalDir = path.join(
+            baseUploadDir,
+            cbtdName,
+            customerCode,
+            caseType,
+            docTypeFolder
+        );
+
+        // Tạo thư mục đích nếu chưa tồn tại
+        ensureDirectoryExists(finalDir);
+        
+        // Tạo đường dẫn file đích
+        const fileName = path.basename(tempFilePath);
+        const finalFilePath = path.join(finalDir, fileName);
+        
+        // Move file từ temp đến vị trí cuối cùng
+        fs.renameSync(tempFilePath, finalFilePath);
+        
+        console.log('File đã được move từ:', tempFilePath);
+        console.log('Đến:', finalFilePath);
+        
+        return finalFilePath;
+    } catch (error) {
+        console.error('Lỗi khi move file:', error);
+        throw error;
+    }
+};
+
+module.exports = { upload, moveFileToFinalDestination, getDocumentTypeFolder };

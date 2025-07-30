@@ -140,6 +140,7 @@ AppDataSource.initialize()
                 branch_code: "6421",
                 role: "administrator",
                 password: await bcrypt.hash("Admin@6421", 10),
+                created_
             };
             admin = officerRepository.create(adminData);
             await officerRepository.save(admin);

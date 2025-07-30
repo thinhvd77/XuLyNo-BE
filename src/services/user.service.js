@@ -41,11 +41,9 @@ exports.getAllUsers = async (user_employee_code) => {
         where: {
             employee_code: Not(user_employee_code)
         },
+        // sắp xếp theo thời gian tạo mới nhất
         order: {
-            branch_code: "DESC",
-            dept: "ASC",
-            role: "DESC",
-            fullname: "ASC"
+            created_at: "DESC"
         }
     });
 };

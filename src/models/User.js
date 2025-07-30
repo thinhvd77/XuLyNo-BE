@@ -33,7 +33,11 @@ const User = new EntitySchema({
         status: {
             type: "varchar",
             default: "active",
-        }
+        },
+        created_at: {
+            type: "timestamp",
+            default: () => "CURRENT_TIMESTAMP",
+        },
     },
 });
 

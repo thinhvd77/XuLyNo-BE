@@ -2,6 +2,7 @@ const caseService = require("../services/case.service");
 const fileManagerService = require("../services/fileManager.service");
 const { validationResult } = require("express-validator");
 const multer = require("multer");
+const { moveFileToFinalDestination, getDocumentTypeFolder } = require("../config/multer.config");
 
 /**
  * MỚI: Xử lý request upload file Excel
@@ -278,8 +279,12 @@ exports.uploadDocument = async (req, res) => {
         const uploader = req.user;
         const file = req.file;
         const documentType = req.body.document_type || 'other'; // Lấy document_type từ request body
-        console.log('File:', file);
-        console.log('Document type:', documentType);
+        console.log('=== DEBUG UPLOAD ===');
+        console.log('File:', file ? file.filename : 'No file');
+        console.log('req.body:', req.body);
+        console.log('Document type from body:', req.body.document_type);
+        console.log('Final document type:', documentType);
+        console.log('===================');
         
 
         if (!file) {
@@ -290,6 +295,30 @@ exports.uploadDocument = async (req, res) => {
                     message: "Vui lòng chọn một file để tải lên.",
                 });
         }
+
+        // Lấy thông tin case để move file đến đúng vị trí
+        const AppDataSource = require('../config/dataSource');
+        const caseRepository = AppDataSource.getRepository("DebtCase");
+        const caseData = await caseRepository.findOneBy({ case_id: caseId });
+        
+        if (!caseData) {
+            return res.status(404).json({
+                success: false,
+                message: "Không tìm thấy case.",
+            });
+        }
+
+        // Move file từ temp đến vị trí cuối cùng
+        const finalFilePath = await moveFileToFinalDestination(
+            file.path, // Đường dẫn file temp
+            caseData,
+            uploader,
+            documentType
+        );
+
+        // Cập nhật file object với đường dẫn mới
+        file.path = finalFilePath;
+        file.destination = require('path').dirname(finalFilePath);
 
         const documentRecord = await caseService.addDocumentToCase(
             caseId,
