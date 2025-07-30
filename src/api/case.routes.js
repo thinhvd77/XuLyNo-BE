@@ -19,6 +19,24 @@ router.get(
     caseController.getMyCases
 );
 
+// MỚI: Route để lấy tất cả danh sách hồ sơ (dành cho Ban Giám Đốc)
+// GET /api/cases/all-cases
+router.get(
+    '/all-cases',
+    protect,
+    authorize('director', 'deputy_director', 'administrator', 'BGĐ'), // Thêm BGĐ vào danh sách role được phép
+    caseController.getAllCases
+);
+
+// MỚI: Route để lấy danh sách hồ sơ theo phòng ban (dành cho Manager/Deputy Manager)
+// GET /api/cases/department-cases
+router.get(
+    '/department-cases',
+    protect,
+    authorize('manager', 'deputy_manager'), // Chỉ Manager và Deputy Manager được xem
+    caseController.getDepartmentCases
+);
+
 router.post(
     '/import-internal',
     protect,
@@ -41,6 +59,14 @@ router.get(
     caseController.getCaseUpdateContent
 )
 
+// Route để lấy danh sách updates của case
+router.get(
+    '/:caseId/updates',
+    protect,
+    authorize('employee', 'deputy_manager', 'manager', 'administrator', 'deputy_director', 'director'),
+    caseController.getCaseUpdates
+);
+
 router.post(
     '/:caseId/updates',
     protect, // Yêu cầu đăng nhập
@@ -52,8 +78,8 @@ router.post(
 router.patch(
     '/:caseId/status',
     protect, // Yêu cầu đăng nhập
-    authorize('employee', 'manager', 'administrator'), // Các vai trò được phép truy cập
-    body('status').isIn(['Mới', 'Đang thu hồi nợ', 'Đang khởi kiện', 'Đang chờ xét xử', 'Đang chờ thi hành án', 'Đang thi hành án', 'Hoàn tất']).withMessage('Trạng thái không hợp lệ.'),
+    authorize('employee', 'deputy_manager', 'manager', 'administrator'), // Các vai trò được phép truy cập
+    body('status').isIn(['beingFollowedUp', 'beingSued', 'awaitingJudgmentEffect', 'beingExecuted', 'proactivelySettled', 'debtSold', 'amcHired']).withMessage('Trạng thái không hợp lệ.'),
     caseController.updateCaseStatus
 );
 
@@ -68,7 +94,7 @@ router.post(
 router.get(
   '/:caseId/documents',
   protect, // Yêu cầu đăng nhập
-  authorize('employee', 'manager', 'administrator'), // Các vai trò được phép truy cập
+  authorize('employee', 'deputy_manager', 'manager', 'administrator', 'deputy_director', 'director'), // Các vai trò được phép truy cập
   caseController.getCaseDocuments
 );
 
@@ -76,7 +102,7 @@ router.get(
 router.get(
   '/documents/:documentId/download',
   protect, // Yêu cầu đăng nhập
-  authorize('employee', 'manager', 'administrator'), // Các vai trò được phép truy cập
+  // authorize('employee', 'manager', 'administrator'), // Các vai trò được phép truy cập
   caseController.downloadDocument
 );
 
@@ -84,7 +110,7 @@ router.get(
 router.get(
   '/documents/:documentId/preview',
   protect, // Yêu cầu đăng nhập
-  authorize('employee', 'manager', 'administrator'), // Các vai trò được phép truy cập
+  // authorize('employee', 'manager', 'administrator'), // Các vai trò được phép truy cập
   caseController.previewDocument
 );
 
@@ -92,8 +118,24 @@ router.get(
 router.delete(
   '/documents/:documentId',
   protect, // Yêu cầu đăng nhập
-  authorize('employee', 'manager', 'administrator'), // Các vai trò được phép truy cập
+  authorize('employee', 'deputy_manager', 'manager', 'administrator'), // Các vai trò được phép truy cập
   caseController.deleteDocument
+);
+
+// Route để lấy cấu trúc thư mục của CBTD hiện tại
+router.get(
+  '/my-file-structure',
+  protect,
+  authorize('employee', 'deputy_manager', 'manager', 'administrator'),
+  caseController.getMyFileStructure
+);
+
+// Route để lấy thống kê storage (dành cho admin/manager)
+router.get(
+  '/storage-stats',
+  protect,
+  authorize('manager', 'deputy_director', 'director', 'administrator'),
+  caseController.getStorageStats
 );
 
 // MỚI: Route để lấy danh sách hồ sơ của CBTD
@@ -101,7 +143,7 @@ router.delete(
 router.get(
     '/:caseId',
     protect,
-    authorize('employee', 'manager', 'administrator'), // Các vai trò được phép truy cập
+    authorize('employee', 'deputy_manager', 'manager', 'administrator', 'deputy_director', 'director'), // Các vai trò được phép truy cập
     caseController.getCaseDetails
 );
 

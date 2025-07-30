@@ -1,4 +1,5 @@
 const caseService = require("../services/case.service");
+const fileManagerService = require("../services/fileManager.service");
 const { validationResult } = require("express-validator");
 const multer = require("multer");
 
@@ -80,6 +81,68 @@ exports.getMyCases = async (req, res) => {
 };
 
 /**
+ * MỚI: Lấy tất cả danh sách hồ sơ (dành cho Ban Giám Đốc)
+ */
+exports.getAllCases = async (req, res) => {
+    try {
+        const { 
+            page = 1, 
+            limit = 20, 
+            search = '', 
+            type = '', 
+            status = '',
+            sortBy = '',
+            sortOrder = 'asc',
+            branch_code = ''
+        } = req.query;
+        
+        const filters = { search, type, status, branch_code };
+        const sorting = { sortBy, sortOrder };
+        
+        const cases = await caseService.findAllCases(page, filters, parseInt(limit), sorting);
+        res.status(200).json(cases);
+    } catch (error) {
+        console.error("Lỗi khi lấy danh sách tất cả hồ sơ:", error);
+        res.status(500).json({ message: "Đã có lỗi xảy ra trên server." });
+    }
+};
+
+/**
+ * MỚI: Lấy danh sách hồ sơ theo phòng ban (dành cho Manager/Deputy Manager)
+ * Hiển thị cases được quản lý bởi CBTD có cùng phòng ban và cùng branch_code
+ */
+exports.getDepartmentCases = async (req, res) => {
+    try {
+        const { 
+            page = 1, 
+            limit = 20, 
+            search = '', 
+            type = '', 
+            status = '',
+            sortBy = '',
+            sortOrder = 'asc'
+        } = req.query;
+        
+        // Lấy thông tin user hiện tại từ token (đã được decode trong middleware)
+        const currentUser = req.user;
+        const filters = { 
+            search, 
+            type, 
+            status, 
+            department: currentUser.dept,
+            branch_code: currentUser.branch_code 
+        };
+        const sorting = { sortBy, sortOrder };
+        
+        const cases = await caseService.findDepartmentCases(page, filters, parseInt(limit), sorting);
+        res.status(200).json(cases);
+    } catch (error) {
+        console.error("Lỗi khi lấy danh sách hồ sơ theo phòng ban:", error);
+        res.status(500).json({ message: "Đã có lỗi xảy ra trên server." });
+    }
+};
+
+/**
  * MỚI: Lấy thông tin chi tiết của một hồ sơ theo ID
  * @param {string} req.params.caseId - ID của hồ sơ cần lấy thông tin
  */
@@ -95,9 +158,33 @@ exports.getCaseDetails = async (req, res) => {
             return res.status(404).json({ message: "Hồ sơ không tìm thấy." });
         }
 
-        res.status(200).json(debtCase);
+        res.status(200).json({
+            success: true,
+            data: debtCase
+        });
     } catch (error) {
         console.error("Lỗi khi lấy thông tin hồ sơ:", error);
+        res.status(500).json({ message: "Đã có lỗi xảy ra trên server." });
+    }
+};
+
+/**
+ * MỚI: Lấy danh sách cập nhật của hồ sơ
+ */
+exports.getCaseUpdates = async (req, res) => {
+    try {
+        const caseId = req.params.caseId;
+        if (!caseId) {
+            return res.status(400).json({ message: "ID hồ sơ không hợp lệ." });
+        }
+
+        const updates = await caseService.getCaseUpdates(caseId);
+        res.status(200).json({
+            success: true,
+            data: updates,
+        });
+    } catch (error) {
+        console.error("Lỗi khi lấy danh sách cập nhật:", error);
         res.status(500).json({ message: "Đã có lỗi xảy ra trên server." });
     }
 };
@@ -247,6 +334,7 @@ exports.uploadDocument = async (req, res) => {
 exports.getCaseDocuments = async (req, res) => {
     try {
         const caseId = req.params.caseId;
+        console.log('getCaseDocuments called with caseId:', caseId);
         
         if (!caseId) {
             return res.status(400).json({
@@ -256,6 +344,8 @@ exports.getCaseDocuments = async (req, res) => {
         }
 
         const documents = await caseService.getDocumentsByCase(caseId);
+        console.log('Documents found:', documents.length);
+        console.log('Sample document:', documents[0]);
 
         res.status(200).json({
             success: true,
@@ -296,9 +386,14 @@ exports.downloadDocument = async (req, res) => {
 
         const path = require('path');
         const fs = require('fs');
+        const { getAbsoluteFilePath } = require('../utils/filePathHelper');
+        
+        // Chuyển từ relative path sang absolute path
+        const absolutePath = getAbsoluteFilePath(document.file_path);
         
         // Kiểm tra file có tồn tại không
-        if (!fs.existsSync(document.file_path)) {
+        if (!fs.existsSync(absolutePath)) {
+            console.log('File not found at:', absolutePath);
             return res.status(404).json({
                 success: false,
                 message: "File không tồn tại trên server."
@@ -312,7 +407,7 @@ exports.downloadDocument = async (req, res) => {
         res.setHeader('Content-Length', document.file_size);
         
         // Stream file về client
-        const fileStream = fs.createReadStream(document.file_path);
+        const fileStream = fs.createReadStream(absolutePath);
         fileStream.on('error', (error) => {
             console.error('File stream error:', error);
             if (!res.headersSent) {
@@ -364,12 +459,20 @@ exports.previewDocument = async (req, res) => {
 
         const path = require('path');
         const fs = require('fs');
+        const { getAbsoluteFilePath, getFilePathBreadcrumb } = require('../utils/filePathHelper');
         
-        console.log('Document file path:', document.file_path);
+        // Chuyển từ relative path sang absolute path
+        const absolutePath = getAbsoluteFilePath(document.file_path);
+        
+        console.log('Document file paths:', {
+            relativePath: document.file_path,
+            absolutePath: absolutePath,
+            breadcrumb: getFilePathBreadcrumb(document.file_path)
+        });
         
         // Kiểm tra file có tồn tại không
-        if (!fs.existsSync(document.file_path)) {
-            console.log('File does not exist:', document.file_path);
+        if (!fs.existsSync(absolutePath)) {
+            console.log('File does not exist:', absolutePath);
             return res.status(404).json({
                 success: false,
                 message: "File không tồn tại trên server."
@@ -380,7 +483,8 @@ exports.previewDocument = async (req, res) => {
         console.log('Serving file:', {
             filename: document.original_filename,
             mime_type: document.mime_type,
-            size: document.file_size
+            size: document.file_size,
+            path: getFilePathBreadcrumb(document.file_path)
         });
 
         // Set headers cho preview (inline thay vì attachment) với UTF-8 encoding
@@ -398,7 +502,7 @@ exports.previewDocument = async (req, res) => {
         res.setHeader('X-Frame-Options', 'SAMEORIGIN');
         
         // Stream file về client
-        const fileStream = fs.createReadStream(document.file_path);
+        const fileStream = fs.createReadStream(absolutePath);
         
         fileStream.on('error', (error) => {
             console.error('File stream error:', error);
@@ -457,6 +561,51 @@ exports.deleteDocument = async (req, res) => {
         res.status(500).json({
             success: false,
             message: error.message || "Đã có lỗi xảy ra trên server.",
+        });
+    }
+};
+
+/**
+ * Lấy cấu trúc thư mục của CBTD hiện tại
+ */
+exports.getMyFileStructure = async (req, res) => {
+    try {
+        const currentUser = req.user;
+        const cbtdName = currentUser.fullname || currentUser.employee_code;
+        
+        const structure = fileManagerService.getDirectoryStructure(cbtdName);
+        
+        res.status(200).json({
+            success: true,
+            message: "Lấy cấu trúc thư mục thành công!",
+            data: structure
+        });
+    } catch (error) {
+        console.error("Lỗi khi lấy cấu trúc thư mục:", error);
+        res.status(500).json({
+            success: false,
+            message: "Đã có lỗi xảy ra trên server.",
+        });
+    }
+};
+
+/**
+ * Lấy thống kê storage (dành cho admin/manager)
+ */
+exports.getStorageStats = async (req, res) => {
+    try {
+        const stats = fileManagerService.getStorageStats();
+        
+        res.status(200).json({
+            success: true,
+            message: "Lấy thống kê storage thành công!",
+            data: stats
+        });
+    } catch (error) {
+        console.error("Lỗi khi lấy thống kê storage:", error);
+        res.status(500).json({
+            success: false,
+            message: "Đã có lỗi xảy ra trên server.",
         });
     }
 };

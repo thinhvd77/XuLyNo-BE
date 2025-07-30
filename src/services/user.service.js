@@ -67,6 +67,104 @@ exports.getUserById = async (id) => {
 };
 
 /**
+ * Update user by ID
+ * @param {string} id - Employee code của user cần update
+ * @param {object} updateData - Dữ liệu cần cập nhật
+ */
+exports.updateUser = async (id, updateData) => {
+    const userRepository = AppDataSource.getRepository("User");
+    
+    // 1. Tìm user cần update
+    const existingUser = await userRepository.findOne({
+        where: { employee_code: id },
+    });
+
+    if (!existingUser) {
+        throw new Error("Người dùng không tìm thấy.");
+    }
+
+    // 2. Kiểm tra username và employee_code có bị trùng với user khác không
+    if (updateData.username && updateData.username !== existingUser.username) {
+        const userWithSameUsername = await userRepository.findOne({
+            where: { 
+                username: updateData.username,
+                employee_code: Not(id) // Loại trừ user hiện tại
+            },
+        });
+        if (userWithSameUsername) {
+            throw new Error("Tên đăng nhập đã tồn tại.");
+        }
+    }
+
+    if (updateData.employee_code && updateData.employee_code !== existingUser.employee_code) {
+        const userWithSameEmployeeCode = await userRepository.findOne({
+            where: { 
+                employee_code: updateData.employee_code,
+                employee_code: Not(id) // Loại trừ user hiện tại
+            },
+        });
+        if (userWithSameEmployeeCode) {
+            throw new Error("Mã nhân viên đã tồn tại.");
+        }
+    }
+
+    // 3. Băm mật khẩu mới nếu có
+    if (updateData.password) {
+        updateData.password = await bcrypt.hash(updateData.password, 10);
+    }
+
+    // 4. Cập nhật user
+    await userRepository.update(
+        { employee_code: id },
+        updateData
+    );
+
+    // 5. Lấy user đã được cập nhật
+    const updatedUser = await userRepository.findOne({
+        where: { employee_code: updateData.employee_code || id },
+    });
+
+    // 6. Trả về dữ liệu user (loại bỏ mật khẩu)
+    const { password: _, ...userWithoutPassword } = updatedUser;
+    return userWithoutPassword;
+};
+
+/**
+ * Toggle user status (active/disabled)
+ * @param {string} id - Employee code của user cần toggle status
+ */
+exports.toggleUserStatus = async (id) => {
+    const userRepository = AppDataSource.getRepository("User");
+    
+    // 1. Tìm user cần toggle status
+    const existingUser = await userRepository.findOne({
+        where: { employee_code: id },
+    });
+
+    if (!existingUser) {
+        throw new Error("Người dùng không tìm thấy.");
+    }
+
+    // 2. Toggle status: active <-> disabled
+    const newStatus = existingUser.status === 'active' ? 'disabled' : 'active';
+
+    // 3. Cập nhật status
+    await userRepository.update(
+        { employee_code: id },
+        { status: newStatus }
+    );
+
+    // 4. Lấy user đã được cập nhật
+    const updatedUser = await userRepository.findOne({
+        where: { employee_code: id },
+    });
+
+    // 5. Trả về dữ liệu user (loại bỏ mật khẩu)
+    const { password: _, ...userWithoutPassword } = updatedUser;
+    return userWithoutPassword;
+};
+
+/**
  * MỚI: Tìm nhân viên theo phòng ban và chi nhánh của người quản lý
  * @param {object} manager - Thông tin người quản lý đang đăng nhập
  */

@@ -53,6 +53,66 @@ exports.getUserById = async (req, res) => {
 }
 
 /**
+ * Update user by ID
+ */
+exports.updateUser = async (req, res) => {
+    // 1. Kiểm tra kết quả validation
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ 
+            success: false,
+            message: "Dữ liệu không hợp lệ.",
+            errors: errors.array() 
+        });
+    }
+
+    const { id } = req.params;
+
+    try {
+        // 2. Gọi service để cập nhật user
+        const updatedUser = await userService.updateUser(id, req.body);
+        res.status(200).json({
+            success: true,
+            message: "Cập nhật người dùng thành công!",
+            user: updatedUser,
+        });
+    } catch (error) {
+        // 3. Xử lý lỗi (ví dụ: user không tồn tại, username đã tồn tại)
+        if (error.message.includes('không tìm thấy')) {
+            res.status(404).json({ success: false, message: error.message });
+        } else if (error.message.includes('đã tồn tại')) {
+            res.status(409).json({ success: false, message: error.message });
+        } else {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    }
+};
+
+/**
+ * Toggle user status (enable/disable)
+ */
+exports.toggleUserStatus = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // Gọi service để toggle user status
+        const updatedUser = await userService.toggleUserStatus(id);
+        res.status(200).json({
+            success: true,
+            message: `Đã ${updatedUser.status === 'active' ? 'kích hoạt' : 'vô hiệu hóa'} người dùng thành công!`,
+            user: updatedUser,
+        });
+    } catch (error) {
+        // Xử lý lỗi (ví dụ: user không tồn tại)
+        if (error.message.includes('không tìm thấy')) {
+            res.status(404).json({ success: false, message: error.message });
+        } else {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    }
+};
+
+/**
  * MỚI: Lấy danh sách nhân viên thuộc quyền quản lý
  */
 exports.getManagedOfficers = async (req, res) => {
