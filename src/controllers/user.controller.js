@@ -90,3 +90,16 @@ exports.updateUserById = async (req, res) => {
         res.status(404).json({ success: false, message: error.message });
     }
 }
+
+exports.changePassword = async (req, res) => {
+    try {
+        const id = req.params.id; 
+        const data = req.body; 
+        const role = req.user.role
+        const result = await userService.changePassword(id, data, role);
+        res.status(200).json(result);
+    } catch (error) {
+        res.status(404).json({ success: false, message: error.message });
+    }
+}
+

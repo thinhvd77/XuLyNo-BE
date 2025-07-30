@@ -80,7 +80,7 @@ exports.findOfficersByManager = async (manager) => {
             // Loại trừ chính người quản lý ra khỏi danh sách
             employee_code: Not(manager.employee_code),
         },
-        select: ["employee_code", "fullname", "username", "dept", "role"], // Chỉ trả về các trường an toàn
+        select: ["employee_code", "fullname", "username", "dept", "role", "status"], // Chỉ trả về các trường an toàn
     });
     return officers;
 };
@@ -116,4 +116,32 @@ exports.updateUserById = async (id, dataUpdate) => {
 
     await userRepository.save(user);
     return { success: true, message: "Người dùng đã được cập nhật thành công." };
+}
+
+// thay doi mat khau
+exports.changePassword = async (id, data, role) => {
+    const userRepository = AppDataSource.getRepository("User");
+    const user = await userRepository.findOne({
+        where: { employee_code: id },
+    });
+
+    if (!user) {
+        throw new Error("Người dùng không tồn tại.");
+    }
+
+    //Kiểm tra mật khẩu cũ
+    if(role !== "administrator"){
+        const isMatch = await bcrypt.compare(data.oldPassword, user.password);
+        if (!isMatch) {
+            throw new Error("Mật khẩu cũ không đúng.");
+        }
+    }
+ 
+    const hashedPassword = await bcrypt.hash(data.newPassword1, 10);
+
+    //Cập nhật mật khẩu
+    user.password = hashedPassword;
+    await userRepository.save(user);
+
+    return { success: true, message: "Đổi mật khẩu thành công." };
 }

@@ -16,7 +16,7 @@ const createUserValidationRules = [
         .withMessage("Mật khẩu phải có ít nhất 6 ký tự."),
     body("fullname").notEmpty().withMessage("Họ và tên là bắt buộc."),
     body("dept")
-        .isIn(["KHCN", "KHDN", "KH&QLRR", "BGĐ", "IT"])
+        .isIn(["KHCN", "KHDN", "KH", "KH&QLRR", "BGĐ", "IT"])
         .withMessage("Phòng ban không hợp lệ."),
     body("role")
         .isIn([
@@ -77,5 +77,13 @@ router.patch(
     authorize("administrator"), // 2. Yêu cầu vai trò là Administrator
     userController.updateUserById // 3. Xử lý logic
 );
+
+router.patch(
+    "/:id/change-password",
+    protect, // 1. Yêu cầu đăng nhập
+    // authorize("administrator"),
+    userController.changePassword // 3. Xử lý logic
+);
+
 
 module.exports = router;

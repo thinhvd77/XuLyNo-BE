@@ -151,7 +151,7 @@ exports.importExternalCasesFromExcel = async (fileBuffer) => {
     // 2. Lọc và tổng hợp dữ liệu vào Map
     for (const row of data) {
         const customerCode = row.makh;
-        const outstandingDebt = Number(row.Ngoaibang);
+        const outstandingDebt = Number(row.Ngoaibang.replace(/,/g, ""));
         const employeeCode = row.cbtd; // **THAY ĐỔI Ở ĐÂY: Dùng cột 'ofcno'**
         const customerName = row.TenKhachHang;
 
