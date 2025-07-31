@@ -30,6 +30,13 @@ const createUserValidationRules = [
         .withMessage("Vai trò không hợp lệ."),
 ];
 
+// Validation rules for changing password
+const changePasswordValidationRules = [
+    body("newPassword")
+        .isLength({ min: 6 })
+        .withMessage("Mật khẩu mới phải có ít nhất 6 ký tự."),
+];
+
 // Validation rules for updating a user
 const updateUserValidationRules = [
     body("employee_code").optional().notEmpty().withMessage("Mã nhân viên không được để trống."),
@@ -85,6 +92,14 @@ router.get(
     userController.getManagedOfficers
 );
 
+// Định nghĩa route: GET /api/users/employees-for-filter - Lấy danh sách nhân viên để filter
+router.get(
+    "/employees-for-filter",
+    protect, // 1. Yêu cầu đăng nhập
+    authorize("director", "deputy_director", "administrator"), // 2. Chỉ Giám đốc, Phó giám đốc và Administrator được phép truy cập
+    userController.getEmployeesForFilter // 3. Xử lý logic
+);
+
 // Định nghĩa route: GET /api/users/:id
 router.get(
     "/:id",
@@ -108,6 +123,15 @@ router.patch(
     protect, // 1. Yêu cầu đăng nhập
     authorize("administrator"), // 2. Chỉ Administrator được phép thay đổi status
     userController.toggleUserStatus // 3. Xử lý logic
+);
+
+// Định nghĩa route: PATCH /api/users/:id/change-password - Change user password
+router.patch(
+    "/:id/change-password",
+    protect, // 1. Yêu cầu đăng nhập
+    authorize("administrator"), // 2. Chỉ Administrator được phép đổi mật khẩu
+    changePasswordValidationRules, // 3. Validation rules cho change password
+    userController.changeUserPassword // 4. Xử lý logic
 );
 
 router.delete(

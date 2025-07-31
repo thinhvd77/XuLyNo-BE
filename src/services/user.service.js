@@ -1,10 +1,7 @@
 const AppDataSource = require("../config/dataSource");
 const bcrypt = require("bcrypt");
-const { Not } = require("typeorm");
+const { Not, In } = require("typeorm");
 const User = require("../models/User").User;
-const { createChildLogger } = require("../config/logger");
-
-const logger = createChildLogger("user.service");
 
 /**
  * Tạo một CBTD mới
@@ -165,6 +162,42 @@ exports.toggleUserStatus = async (id) => {
 };
 
 /**
+ * Change user password
+ * @param {string} id - Employee code của user cần đổi mật khẩu
+ * @param {string} newPassword - Mật khẩu mới
+ */
+exports.changeUserPassword = async (id, newPassword) => {
+    const userRepository = AppDataSource.getRepository("User");
+    
+    // 1. Tìm user cần đổi mật khẩu
+    const existingUser = await userRepository.findOne({
+        where: { employee_code: id },
+    });
+
+    if (!existingUser) {
+        throw new Error("Người dùng không tìm thấy.");
+    }
+
+    // 2. Băm mật khẩu mới
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // 3. Cập nhật mật khẩu
+    await userRepository.update(
+        { employee_code: id },
+        { password: hashedPassword }
+    );
+
+    // 4. Lấy user đã được cập nhật
+    const updatedUser = await userRepository.findOne({
+        where: { employee_code: id },
+    });
+
+    // 5. Trả về dữ liệu user (loại bỏ mật khẩu)
+    const { password: _, ...userWithoutPassword } = updatedUser;
+    return userWithoutPassword;
+};
+
+/**
  * MỚI: Tìm nhân viên theo phòng ban và chi nhánh của người quản lý
  * @param {object} manager - Thông tin người quản lý đang đăng nhập
  */
@@ -182,6 +215,28 @@ exports.findOfficersByManager = async (manager) => {
         select: ["employee_code", "fullname", "username", "dept", "role"], // Chỉ trả về các trường an toàn
     });
     return officers;
+};
+
+/**
+ * MỚI: Lấy danh sách tất cả nhân viên để sử dụng cho filter dropdown
+ */
+exports.getEmployeesForFilter = async () => {
+    console.log("Đang lấy danh sách nhân viên cho filter...");
+    
+    const userRepository = AppDataSource.getRepository("User");
+    const employees = await userRepository.find({
+        where: {
+            dept: In(["KH", "KHDN", "KHCN", "PGD"]), // Chỉ lấy nhân viên (CBTD)
+            status: "active"  // Chỉ lấy nhân viên đang hoạt động
+        },
+        select: ["employee_code", "fullname"], // Chỉ trả về mã và tên nhân viên
+        order: {
+            fullname: "ASC" // Sắp xếp theo tên
+        }
+    });
+    console.log("Đã lấy danh sách nhân viên cho filter:", employees);
+    
+    return employees;
 };
 
 // Xóa người dùng theo ID

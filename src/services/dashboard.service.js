@@ -19,14 +19,14 @@ exports.getDashboardStats = async () => {
         .createQueryBuilder("debt_cases")
         .select("COUNT(debt_cases.case_id)", "internalCases")
         .addSelect("SUM(debt_cases.outstanding_debt)", "internalDebt")
-        .where("debt_cases.case_type = :type", { type: "Nội bảng" })
+        .where("debt_cases.case_type = :type", { type: "internal" })
         .getRawOne();
 
     const externalStats = await caseRepository
         .createQueryBuilder("debt_cases")
         .select("COUNT(debt_cases.case_id)", "externalCases")
         .addSelect("SUM(debt_cases.outstanding_debt)", "externalDebt")
-        .where("debt_cases.case_type = :type", { type: "Ngoại bảng" })
+        .where("debt_cases.case_type = :type", { type: "external" })
         .getRawOne();
 
     // 3. SỬA LẠI Ở ĐÂY: Lấy danh sách CBTD và số case của từng người bằng LEFT JOIN

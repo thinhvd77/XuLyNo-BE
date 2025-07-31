@@ -27,6 +27,10 @@ const CaseDocument = new EntitySchema({
     document_type: {
       type: 'varchar',
     },
+    uploaded_by_employee_code: {
+      type: 'varchar',
+      nullable: true,
+    },
     upload_date: {
       type: 'timestamptz',
       createDate: true,
@@ -41,6 +45,15 @@ const CaseDocument = new EntitySchema({
         referencedColumnName: 'case_id',
       },
       onDelete: 'CASCADE', // Xóa tài liệu khi xóa trường hợp
+    },
+    uploader: {
+      type: 'many-to-one',
+      target: 'User',
+      joinColumn: {
+        name: 'uploaded_by_employee_code',
+        referencedColumnName: 'employee_code',
+      },
+      onDelete: 'SET NULL', // Giữ tài liệu khi xóa người dùng
     },
   },
 });

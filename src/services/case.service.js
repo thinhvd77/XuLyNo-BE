@@ -4,9 +4,6 @@ const { Not } = require("typeorm");
 const fs = require('fs');
 const path = require('path');
 const { getRelativeFilePath, getAbsoluteFilePath } = require('../utils/filePathHelper');
-const { createChildLogger } = require("../config/logger");
-
-const logger = createChildLogger("case.service");
 
 /**
  * Xử lý import hồ sơ nợ từ file Excel, tổng hợp dư nợ theo mã khách hàng
@@ -169,6 +166,11 @@ exports.findAllCases = async (page = 1, filters = {}, limit = 20, sorting = {}) 
     // Branch-based filtering: BGĐ thuộc chi nhánh khác không phải 6421 chỉ xem cases thuộc branch đó
     if (filters.branch_code) {
         queryBuilder = queryBuilder.andWhere("officer.branch_code = :branch_code", { branch_code: filters.branch_code });
+    }
+
+    // Employee-based filtering: Filter by specific employee
+    if (filters.employee_code) {
+        queryBuilder = queryBuilder.andWhere("officer.employee_code = :employee_code", { employee_code: filters.employee_code });
     }
 
     // Áp dụng sorting
@@ -608,14 +610,14 @@ exports.addDocumentToCase = async (caseId, fileInfo, uploader, documentType = 'o
         mime_type: fileInfo.mimetype,
         file_size: fileInfo.size,
         document_type: documentType, // Sử dụng document_type được truyền vào
-        // uploaded_by_employee_code: uploader.employee_code,
+        uploaded_by_employee_code: uploader.employee_code,
     };
 
     const document = caseDocumentRepository.create(newDocumentData);
     await caseDocumentRepository.save(document);
 
     // Log thông tin file đã lưu
-    logger.info('Document saved with structured path', {
+    console.log('Document saved with structured path:', {
         originalName: fileInfo.originalname,
         relativePath: getRelativeFilePath(fileInfo.path),
         absolutePath: fileInfo.path,
@@ -660,19 +662,20 @@ exports.addDocumentToCase = async (caseId, fileInfo, uploader, documentType = 'o
  * @param {string} caseId - ID của case cần lấy danh sách tài liệu
  */
 exports.getDocumentsByCase = async (caseId) => {
-    logger.debug('getDocumentsByCase called', { caseId });
+    console.log('getDocumentsByCase called with caseId:', caseId);
     const caseDocumentRepository = AppDataSource.getRepository("CaseDocument");
     
     const documents = await caseDocumentRepository.find({
         where: {
             case_id: caseId,
         },
+        relations: ['uploader'], // Include uploader relationship
         order: {
             upload_date: "DESC", // Sắp xếp theo ngày tải lên mới nhất
         },
     });
 
-    logger.debug('Documents found', { count: documents.length, caseId });
+    console.log('Found documents:', documents.length);
     return documents;
 };
 
@@ -683,8 +686,9 @@ exports.getDocumentsByCase = async (caseId) => {
 exports.getDocumentById = async (documentId) => {
     const caseDocumentRepository = AppDataSource.getRepository("CaseDocument");
     
-    const document = await caseDocumentRepository.findOneBy({ 
-        document_id: documentId 
+    const document = await caseDocumentRepository.findOne({ 
+        where: { document_id: documentId },
+        relations: ['uploader'], // Include uploader relationship
     });
 
     return document;
@@ -718,13 +722,13 @@ exports.deleteDocumentById = async (documentId, deleter) => {
     if (fs.existsSync(absolutePath)) {
         try {
             fs.unlinkSync(absolutePath);
-            logger.info('File deleted successfully', { absolutePath });
+            console.log('File deleted from:', absolutePath);
         } catch (fileError) {
             console.error('Lỗi khi xóa file vật lý:', fileError);
             // Không throw error ở đây để vẫn có thể xóa record trong DB
         }
     } else {
-        logger.warn('File not found for deletion', { absolutePath });
+        console.log('File not found for deletion:', absolutePath);
     }
 
     // Xóa record trong database

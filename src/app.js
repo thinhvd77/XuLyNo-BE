@@ -7,11 +7,6 @@ const bcrypt = require("bcrypt");
 const apiRoutes = require("./api");
 const AppDataSource = require("./config/dataSource");
 const { User } = require("./models/User");
-const { logger, createChildLogger } = require('./config/logger');
-const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
-
-// Create module-specific logger
-const appLogger = createChildLogger('app');
 
 // Khởi tạo server
 const app = express();
@@ -26,7 +21,7 @@ const corsOptions = {
         
         // Các pattern cho phép
         const allowedPatterns = [
-            /^http:\/\/localhost:\d+$/,           // localhost với bất kỳ port nào
+            /^http:\/\/localhost(:\d+)?$/,        // localhost với hoặc không có port
             /^http:\/\/127\.0\.0\.1:\d+$/,        // 127.0.0.1 với bất kỳ port nào  
             /^http:\/\/192\.168\.\d+\.\d+:\d+$/,  // Mạng LAN 192.168.x.x
             /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,   // Mạng LAN 10.x.x.x
@@ -38,7 +33,7 @@ const corsOptions = {
         if (isAllowed) {
             callback(null, true);
         } else {
-            appLogger.warn('CORS blocked origin', { origin });
+            console.log('CORS blocked origin:', origin);
             callback(null, true); // Tạm thời cho phép tất cả để debug
         }
     },
@@ -76,17 +71,11 @@ app.use((req, res, next) => {
     const origin = req.headers.origin;
     
     // Log request details cho debugging
-    appLogger.info('Request received', {
-        method: req.method,
-        path: req.path,
-        origin: origin,
-        userAgent: req.get('User-Agent'),
-        ip: req.ip
-    });
+    console.log(`${req.method} ${req.path} - Origin: ${origin}`);
     
     // Các pattern cho phép (giống như trong corsOptions)
     const allowedPatterns = [
-        /^http:\/\/localhost:\d+$/,           
+        /^http:\/\/localhost(:\d+)?$/,        // localhost với hoặc không có port
         /^http:\/\/127\.0\.0\.1:\d+$/,        
         /^http:\/\/192\.168\.\d+\.\d+:\d+$/,  
         /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,   
@@ -101,7 +90,7 @@ app.use((req, res, next) => {
         if (isAllowed) {
             res.header('Access-Control-Allow-Origin', origin);
         } else {
-            appLogger.warn('Non-standard origin, allowing anyway', { origin });
+            console.log('Non-standard origin, allowing anyway:', origin);
             res.header('Access-Control-Allow-Origin', origin); // Cho phép để debug
         }
     }
@@ -114,7 +103,7 @@ app.use((req, res, next) => {
     // Handle preflight requests
     if (req.method === 'OPTIONS') {
         res.header('Access-Control-Max-Age', '86400'); // 24 hours
-        appLogger.debug('Handling OPTIONS request', { path: req.path });
+        console.log('Handling OPTIONS request for:', req.path);
         return res.status(200).end();
     }
     
@@ -133,15 +122,16 @@ require("./config/passport")(passport);
 // Kết nối CSDL và khởi động server
 AppDataSource.initialize()
     .then(async () => {
-        appLogger.info("Database connection established successfully");
+        console.log("✅ Đã kết nối cơ sở dữ liệu thành công!");
 
         const officerRepository = AppDataSource.getRepository("User");
+        // const caseRepository = AppDataSource.getRepository("DebtCase");
 
         let admin = await officerRepository.findOneBy({
             username: "admin",
         });
         if (!admin) {
-            appLogger.info("Creating Administrator account...");
+            console.log("Tạo Administrator...");
             const adminData = {
                 employee_code: "99999999",
                 username: "admin",
@@ -153,7 +143,7 @@ AppDataSource.initialize()
             };
             admin = officerRepository.create(adminData);
             await officerRepository.save(admin);
-            appLogger.info("Administrator account created successfully");
+            console.log("✅ Tạo Administrator thành công!");
         }
 
         // Routes
@@ -161,34 +151,14 @@ AppDataSource.initialize()
 
         // Route gốc để health check
         app.get("/", (req, res) => {
-            res.json({
-                success: true,
-                message: "Welcome to Debt Collection API with Express.js!",
-                timestamp: new Date().toISOString(),
-                uptime: process.uptime()
-            });
+            res.send("Welcome to Debt Collection API with Express.js!");
         });
-
-        // 404 handler for undefined routes
-        app.use(notFoundHandler);
-
-        // Global error handling middleware (must be last)
-        app.use(errorHandler);
 
         app.listen(PORT, '0.0.0.0', () => {
-            appLogger.info('Server started successfully', {
-                port: PORT,
-                environment: process.env.NODE_ENV || 'development',
-                localhost: `http://localhost:${PORT}`,
-                network: `http://[your-ip]:${PORT}`,
-                apiHealth: `http://localhost:${PORT}/api/health`
-            });
+            console.log(`🚀 Server đang chạy tại:`);
+            console.log(`   - Localhost: http://localhost:${PORT}`);
+            console.log(`   - Network: http://[your-ip]:${PORT}`);
+            console.log(`   - API Health: http://localhost:${PORT}/api`);
         });
     })
-    .catch((error) => {
-        appLogger.error("Database connection failed", { 
-            error: error.message, 
-            stack: error.stack 
-        });
-        process.exit(1);
-    });
+    .catch((error) => console.log("❌ Lỗi kết nối cơ sở dữ liệu: ", error));

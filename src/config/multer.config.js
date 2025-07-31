@@ -3,8 +3,9 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
-// Base directory cho file uploads
-const baseUploadDir = 'FilesXuLyNo/';
+// Base directory cho file uploads disk D
+
+const baseUploadDir = 'D:/FilesXuLyNo/';
 
 // Đảm bảo base directory tồn tại
 if (!fs.existsSync(baseUploadDir)) {
