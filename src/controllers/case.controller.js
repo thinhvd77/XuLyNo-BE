@@ -73,6 +73,29 @@ exports.getMyCases = async (req, res) => {
                 .json({ message: "Không tìm thấy thông tin nhân viên." });
         }
 
+        // Kiểm tra xem có tham số phân trang không
+        const { 
+            page, 
+            limit, 
+            search, 
+            type, 
+            status,
+            sortBy,
+            sortOrder 
+        } = req.query;
+
+        // Nếu có tham số phân trang, sử dụng phương thức mới
+        if (page || limit || search || type || status || sortBy || sortOrder) {
+            const pageNum = parseInt(page) || 1;
+            const limitNum = parseInt(limit) || 20;
+            const filters = { search: search || '', type: type || '', status: status || '' };
+            const sorting = { sortBy: sortBy || '', sortOrder: sortOrder || 'asc' };
+            
+            const result = await caseService.findMyCases(employeeCode, pageNum, filters, limitNum, sorting);
+            return res.status(200).json(result);
+        }
+
+        // Fallback cho client cũ: trả về tất cả cases (tương thích ngược)
         const cases = await caseService.findCasesByEmployeeCode(employeeCode);
         res.status(200).json(cases);
     } catch (error) {
@@ -171,6 +194,42 @@ exports.getCaseDetails = async (req, res) => {
 };
 
 /**
+ * NEW: Lấy thông tin tổng hợp của case (details + updates + documents)
+ */
+exports.getCaseOverview = async (req, res) => {
+    try {
+        const caseId = req.params.caseId;
+        const { limit = 10 } = req.query;
+
+        if (!caseId) {
+            return res.status(400).json({ 
+                success: false,
+                message: "ID hồ sơ không hợp lệ." 
+            });
+        }
+
+        const overview = await caseService.getCaseOverview(caseId, parseInt(limit));
+
+        res.status(200).json({
+            success: true,
+            data: overview
+        });
+    } catch (error) {
+        console.error("Lỗi khi lấy thông tin tổng hợp hồ sơ:", error);
+        if (error.message === "Hồ sơ không tìm thấy.") {
+            return res.status(404).json({ 
+                success: false,
+                message: error.message 
+            });
+        }
+        res.status(500).json({ 
+            success: false,
+            message: "Đã có lỗi xảy ra trên server." 
+        });
+    }
+};
+
+/**
  * MỚI: Lấy danh sách cập nhật của hồ sơ
  */
 exports.getCaseUpdates = async (req, res) => {
@@ -180,10 +239,16 @@ exports.getCaseUpdates = async (req, res) => {
             return res.status(400).json({ message: "ID hồ sơ không hợp lệ." });
         }
 
-        const updates = await caseService.getCaseUpdates(caseId);
+        // Lấy thông số phân trang từ query parameters
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 5;
+
+        const result = await caseService.getCaseUpdates(caseId, page, limit);
+        
         res.status(200).json({
             success: true,
-            data: updates,
+            data: result.updates,
+            pagination: result.pagination
         });
     } catch (error) {
         console.error("Lỗi khi lấy danh sách cập nhật:", error);
@@ -393,13 +458,15 @@ exports.getCaseDocuments = async (req, res) => {
 };
 
 /**
- * Download file tài liệu
+ * Download file tài liệu (SECURE VERSION)
  */
 exports.downloadDocument = async (req, res) => {
     try {
         const documentId = req.params.documentId;
         
-        if (!documentId) {
+        // Validate document ID format
+        if (!documentId || typeof documentId !== 'string' || !/^[a-zA-Z0-9\-]+$/.test(documentId)) {
+            console.warn(`[SECURITY] Invalid document ID format: ${documentId}`);
             return res.status(400).json({
                 success: false,
                 message: "ID tài liệu không hợp lệ."
@@ -409,38 +476,78 @@ exports.downloadDocument = async (req, res) => {
         const document = await caseService.getDocumentById(documentId);
         
         if (!document) {
+            console.warn(`[SECURITY] Document not found for ID: ${documentId}`);
             return res.status(404).json({
                 success: false,
                 message: "Không tìm thấy tài liệu."
             });
         }
 
-        const path = require('path');
         const fs = require('fs');
-        const { getAbsoluteFilePath } = require('../utils/filePathHelper');
-        
-        // Chuyển từ relative path sang absolute path
+        const { getAbsoluteFilePath, validateAndSanitizePath } = require('../utils/filePathHelper');
+
+        // Validate and sanitize the file path from database
+        if (!document.file_path || !validateAndSanitizePath(document.file_path)) {
+            console.error(`[SECURITY] Invalid or malicious file path detected: ${document.file_path}`);
+            return res.status(400).json({
+                success: false,
+                message: "Đường dẫn file không hợp lệ."
+            });
+        }
+
+        // Securely resolve the absolute path
         const absolutePath = getAbsoluteFilePath(document.file_path);
         
-        // Kiểm tra file có tồn tại không
+        if (!absolutePath) {
+            console.error(`[SECURITY] Path traversal attempt blocked for document: ${documentId}, path: ${document.file_path}`);
+            return res.status(403).json({
+                success: false,
+                message: "Truy cập file bị từ chối."
+            });
+        }
+
+        // Check if file exists
         if (!fs.existsSync(absolutePath)) {
-            console.log('File not found at:', absolutePath);
+            console.warn(`[SECURITY] File not found: ${absolutePath} for document: ${documentId}`);
             return res.status(404).json({
                 success: false,
                 message: "File không tồn tại trên server."
             });
         }
 
-        // Set headers cho download với UTF-8 encoding
-        const encodedFilename = encodeURIComponent(document.original_filename);
+        // Additional security check: verify file is actually a file (not directory)
+        const stats = fs.statSync(absolutePath);
+        if (!stats.isFile()) {
+            console.error(`[SECURITY] Attempted to download non-file: ${absolutePath}`);
+            return res.status(403).json({
+                success: false,
+                message: "Truy cập file bị từ chối."
+            });
+        }
+
+        // Sanitize filename for download
+        const sanitizedFilename = document.original_filename?.replace(/[<>:"/\\|?*\0]/g, '_') || 'download';
+        const encodedFilename = encodeURIComponent(sanitizedFilename);
+
+        // Set secure headers for download
         res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
-        res.setHeader('Content-Type', document.mime_type);
-        res.setHeader('Content-Length', document.file_size);
-        
-        // Stream file về client
+        res.setHeader('Content-Type', document.mime_type || 'application/octet-stream');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('X-Frame-Options', 'DENY');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+        if (document.file_size && document.file_size > 0) {
+            res.setHeader('Content-Length', document.file_size);
+        }
+
+        // Log successful download attempt
+        console.log(`[SECURITY] File download initiated - Document: ${documentId}, User: ${req.user?.id || 'unknown'}, File: ${absolutePath}`);
+
+        // Stream file to client with error handling
         const fileStream = fs.createReadStream(absolutePath);
+
         fileStream.on('error', (error) => {
-            console.error('File stream error:', error);
+            console.error(`[SECURITY] File stream error for document ${documentId}:`, error);
             if (!res.headersSent) {
                 res.status(500).json({
                     success: false,
@@ -449,10 +556,14 @@ exports.downloadDocument = async (req, res) => {
             }
         });
         
+        fileStream.on('end', () => {
+            console.log(`[SECURITY] File download completed - Document: ${documentId}`);
+        });
+
         fileStream.pipe(res);
 
     } catch (error) {
-        console.error("Lỗi khi download tài liệu:", error);
+        console.error(`[SECURITY] Download error for document ${req.params.documentId}:`, error);
         if (!res.headersSent) {
             res.status(500).json({
                 success: false,
@@ -463,15 +574,15 @@ exports.downloadDocument = async (req, res) => {
 };
 
 /**
- * Xem trước file tài liệu (preview)
+ * Xem trước file tài liệu (preview) - SECURE VERSION
  */
 exports.previewDocument = async (req, res) => {
     try {
         const documentId = req.params.documentId;
-        console.log('Preview request for document:', documentId);
-        
-        if (!documentId) {
-            console.log('Invalid document ID');
+
+        // Validate document ID format
+        if (!documentId || typeof documentId !== 'string' || !/^[a-zA-Z0-9\-]+$/.test(documentId)) {
+            console.warn(`[SECURITY] Invalid document ID format for preview: ${documentId}`);
             return res.status(400).json({
                 success: false,
                 message: "ID tài liệu không hợp lệ."
@@ -481,62 +592,78 @@ exports.previewDocument = async (req, res) => {
         const document = await caseService.getDocumentById(documentId);
         
         if (!document) {
-            console.log('Document not found:', documentId);
+            console.warn(`[SECURITY] Document not found for preview: ${documentId}`);
             return res.status(404).json({
                 success: false,
                 message: "Không tìm thấy tài liệu."
             });
         }
 
-        const path = require('path');
         const fs = require('fs');
-        const { getAbsoluteFilePath, getFilePathBreadcrumb } = require('../utils/filePathHelper');
-        
-        // Chuyển từ relative path sang absolute path
+        const { getAbsoluteFilePath, validateAndSanitizePath, getFilePathBreadcrumb } = require('../utils/filePathHelper');
+
+        // Validate and sanitize the file path from database
+        if (!document.file_path || !validateAndSanitizePath(document.file_path)) {
+            console.error(`[SECURITY] Invalid or malicious file path detected for preview: ${document.file_path}`);
+            return res.status(400).json({
+                success: false,
+                message: "Đường dẫn file không hợp lệ."
+            });
+        }
+
+        // Securely resolve the absolute path
         const absolutePath = getAbsoluteFilePath(document.file_path);
         
-        console.log('Document file paths:', {
-            relativePath: document.file_path,
-            absolutePath: absolutePath,
-            breadcrumb: getFilePathBreadcrumb(document.file_path)
-        });
-        
-        // Kiểm tra file có tồn tại không
+        if (!absolutePath) {
+            console.error(`[SECURITY] Path traversal attempt blocked for preview - Document: ${documentId}, path: ${document.file_path}`);
+            return res.status(403).json({
+                success: false,
+                message: "Truy cập file bị từ chối."
+            });
+        }
+
+        // Check if file exists
         if (!fs.existsSync(absolutePath)) {
-            console.log('File does not exist:', absolutePath);
+            console.warn(`[SECURITY] File not found for preview: ${absolutePath} for document: ${documentId}`);
             return res.status(404).json({
                 success: false,
                 message: "File không tồn tại trên server."
             });
         }
 
-        // Log file info
-        console.log('Serving file:', {
-            filename: document.original_filename,
-            mime_type: document.mime_type,
-            size: document.file_size,
-            path: getFilePathBreadcrumb(document.file_path)
-        });
+        // Additional security check: verify file is actually a file (not directory)
+        const stats = fs.statSync(absolutePath);
+        if (!stats.isFile()) {
+            console.error(`[SECURITY] Attempted to preview non-file: ${absolutePath}`);
+            return res.status(403).json({
+                success: false,
+                message: "Truy cập file bị từ chối."
+            });
+        }
 
-        // Set headers cho preview (inline thay vì attachment) với UTF-8 encoding
-        const encodedFilename = encodeURIComponent(document.original_filename);
+        // Sanitize filename for preview
+        const sanitizedFilename = document.original_filename?.replace(/[<>:"/\\|?*\0]/g, '_') || 'preview';
+        const encodedFilename = encodeURIComponent(sanitizedFilename);
+
+        // Set secure headers for preview (inline display)
         res.setHeader('Content-Type', document.mime_type || 'application/octet-stream');
         res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodedFilename}`);
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('X-Frame-Options', 'SAMEORIGIN');
         res.setHeader('Cache-Control', 'public, max-age=3600');
         
-        if (document.file_size) {
+        if (document.file_size && document.file_size > 0) {
             res.setHeader('Content-Length', document.file_size);
         }
         
-        // Thêm header để bypass một số security software
-        res.setHeader('X-Content-Type-Options', 'nosniff');
-        res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-        
-        // Stream file về client
+        // Log successful preview attempt
+        console.log(`[SECURITY] File preview initiated - Document: ${documentId}, User: ${req.user?.id || 'unknown'}, File: ${absolutePath}`);
+
+        // Stream file to client with error handling
         const fileStream = fs.createReadStream(absolutePath);
         
         fileStream.on('error', (error) => {
-            console.error('File stream error:', error);
+            console.error(`[SECURITY] File stream error for preview ${documentId}:`, error);
             if (!res.headersSent) {
                 res.status(500).json({
                     success: false,
@@ -545,18 +672,14 @@ exports.previewDocument = async (req, res) => {
             }
         });
         
-        fileStream.on('open', () => {
-            console.log('File stream opened successfully');
-        });
-        
         fileStream.on('end', () => {
-            console.log('File stream ended');
+            console.log(`[SECURITY] File preview completed - Document: ${documentId}`);
         });
         
         fileStream.pipe(res);
 
     } catch (error) {
-        console.error("Lỗi khi xem trước tài liệu:", error);
+        console.error(`[SECURITY] Preview error for document ${req.params.documentId}:`, error);
         if (!res.headersSent) {
             res.status(500).json({
                 success: false,

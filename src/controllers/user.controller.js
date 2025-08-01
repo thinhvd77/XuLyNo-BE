@@ -24,8 +24,14 @@ exports.createUser = async (req, res) => {
 
 exports.getAllUsers = async (req, res) => {
     try {
-        // 1. Gọi service để lấy danh sách người dùng
-        const users = await userService.getAllUsers(req.user.employee_code);
+        // Extract filter parameters from query string
+        const filters = {
+            dept: req.query.dept,
+            branch_code: req.query.branch_code
+        };
+
+        // 1. Gọi service để lấy danh sách người dùng với filters
+        const users = await userService.getAllUsers(req.user.employee_code, filters);
         res.status(200).json({
             success: true,
             users: users,
@@ -179,6 +185,21 @@ exports.getEmployeesForFilter = async (req, res) => {
     }
 };
 
+/**
+ * API để lấy danh sách chi nhánh (branch) để hiển thị trong dropdown filter
+ */
+exports.getBranchesForFilter = async (req, res) => {
+    try {
+        const branches = await userService.getBranchesForFilter();
+        res.status(200).json({
+            success: true,
+            branches: branches
+        });
+    } catch (error) {
+        console.error("Lỗi khi lấy danh sách chi nhánh cho filter:", error);
+        res.status(500).json({ success: false, message: "Đã có lỗi xảy ra trên server." });
+    }
+};
 
 exports.deleteUserById = async (req, res) => {
     const { id } = req.params;

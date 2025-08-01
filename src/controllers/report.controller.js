@@ -214,7 +214,7 @@ exports.exportReport = async (req, res) => {
             'CBTD': item.user_fullname || '',
             'Mã CBTD': item.debt_cases_assigned_employee_code,
             'Nội dung cập nhật mới nhất': item.case_update_update_content || '',
-            'Ngày cập nhật mới nhất': item.update_date ? 
+            'Ngày cập nhật mới nh��t': item.update_date ?
                 new Date(item.update_date).toLocaleDateString('vi-VN') : '',
             'Ngày tạo case': new Date(item.debt_cases_created_date).toLocaleDateString('vi-VN')
         }));
@@ -349,4 +349,178 @@ exports.getFilterOptions = async (req, res) => {
             error: error.message
         });
     }
+};
+
+/**
+ * Export report for all cases with ALL updates from their most recent update date
+ */
+exports.exportLatestDateUpdatesReport = async (req, res) => {
+    try {
+        const { status, caseType, branch, department, employeeCode } = req.query;
+
+        // BƯỚC 1: Lấy danh sách ID các hồ sơ thỏa mãn điều kiện lọc.
+        // Cách này đảm bảo không bị lặp dữ liệu do JOIN.
+        const caseIdQuery = AppDataSource.getRepository("DebtCase")
+            .createQueryBuilder("debt_case")
+            .select("DISTINCT debt_case.case_id", "case_id")
+            .leftJoin("debt_case.officer", "user");
+
+        if (status) caseIdQuery.andWhere("debt_case.state = :status", { status });
+        if (caseType) caseIdQuery.andWhere("debt_case.case_type = :caseType", { caseType });
+        if (branch) caseIdQuery.andWhere("user.branch_code = :branch", { branch });
+        if (department) caseIdQuery.andWhere("user.dept = :department", { department });
+        if (employeeCode) caseIdQuery.andWhere("debt_case.assigned_employee_code = :employeeCode", { employeeCode });
+
+        const filteredCases = await caseIdQuery.getRawMany();
+        if (filteredCases.length === 0) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy dữ liệu phù hợp để xuất báo cáo.' });
+        }
+        const caseIds = filteredCases.map(c => c.case_id);
+
+        // BƯỚC 2: Lấy tất cả dữ liệu cần thiết cho các hồ sơ đã lọc trong 2 câu truy vấn hiệu quả.
+        // Lấy thông tin chi tiết của các hồ sơ (cases)
+        const casesData = await AppDataSource.getRepository("DebtCase")
+            .createQueryBuilder("debt_case")
+            .leftJoinAndSelect("debt_case.officer", "user")
+            .where("debt_case.case_id IN (:...caseIds)", { caseIds })
+            .getMany();
+
+        // Lấy tất cả cập nhật (updates) của các hồ sơ đó
+        const allUpdates = await AppDataSource.getRepository("CaseUpdate")
+            .createQueryBuilder("update")
+            .leftJoinAndSelect("update.officer", "updater")
+            .where("update.case_id IN (:...caseIds)", { caseIds })
+            .orderBy("update.created_date", "ASC")
+            .getMany();
+
+        // BƯỚC 3: Xử lý dữ liệu trong code ứng dụng - an toàn và dễ kiểm soát.
+        // Nhóm các cập nhật theo từng case_id
+        const updatesByCaseId = allUpdates.reduce((acc, update) => {
+            const id = update.case_id;
+            if (!acc[id]) acc[id] = [];
+            acc[id].push(update);
+            return acc;
+        }, {});
+
+        // Chuẩn bị dữ liệu cuối cùng cho Excel
+        const excelData = casesData.map(caseInfo => {
+            const updatesForThisCase = updatesByCaseId[caseInfo.case_id] || [];
+            let formattedUpdates = 'Chưa có cập nhật nào';
+            let latestUpdateDateStr = '';
+
+            if (updatesForThisCase.length > 0) {
+                // Tìm ngày cập nhật gần nhất
+                const latestDate = new Date(Math.max(...updatesForThisCase.map(u => new Date(u.created_date))));
+                const latestDateString = latestDate.toISOString().split('T')[0];
+                latestUpdateDateStr = latestDate.toLocaleDateString('vi-VN');
+
+                // Lọc ra các cập nhật trong ngày gần nhất đó
+                const updatesOnLatestDate = updatesForThisCase.filter(u => {
+                    return new Date(u.created_date).toISOString().split('T')[0] === latestDateString;
+                });
+
+                // Gộp nội dung cập nhật vào một ô, có kiểm tra giới hạn
+                if (updatesOnLatestDate.length > 0) {
+                    const updateContents = updatesOnLatestDate.map(update => {
+                        const time = new Date(update.created_date).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                        const updaterName = update.officer?.fullname || 'Không rõ';
+                        return `[${time}] ${updaterName}: ${update.update_content}`;
+                    });
+
+                    const joinedContent = updateContents.join('\n');
+                    const CHAR_LIMIT = 32000; // Giới hạn an toàn
+
+                    if (joinedContent.length > CHAR_LIMIT) {
+                        let truncatedContent = '';
+                        let hiddenCount = updateContents.length;
+                        for (const content of updateContents) {
+                            if ((truncatedContent.length + content.length + 1) < CHAR_LIMIT) {
+                                truncatedContent += content + '\n';
+                                hiddenCount--;
+                            }
+                        }
+                        formattedUpdates = truncatedContent.trim() + `\n... [và ${hiddenCount} cập nhật khác đã bị ẩn do vượt quá giới hạn]`;
+                    } else {
+                        formattedUpdates = joinedContent;
+                    }
+                }
+            }
+
+            return {
+                'Mã khách hàng': caseInfo.customer_code,
+                'Tên khách hàng': caseInfo.customer_name,
+                'Loại hồ sơ': normalizeCaseType(caseInfo.case_type),
+                'Trạng thái': normalizeStatus(caseInfo.state),
+                'Dư nợ (VND)': parseFloat(caseInfo.outstanding_debt || 0),
+                'CBTD được giao': caseInfo.officer?.fullname || '',
+                'Chi nhánh': caseInfo.officer?.branch_code || '',
+                'Phòng ban': caseInfo.officer?.dept || '',
+                'Tất cả cập nhật ngày mới nhất': formattedUpdates,
+                'Ngày cập nhật mới nhất': latestUpdateDateStr,
+                'Ngày tạo case': caseInfo.created_date ? new Date(caseInfo.created_date).toLocaleDateString('vi-VN') : '',
+            };
+        });
+
+        // BƯỚC 4: Tạo và gửi file Excel
+        const workbook = XLSX.utils.book_new();
+        const worksheet = XLSX.utils.json_to_sheet(excelData);
+
+        worksheet['!cols'] = [
+            { wch: 15 }, { wch: 30 }, { wch: 12 }, { wch: 20 }, { wch: 18 },
+            { wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 80 }, { wch: 18 }, { wch: 15 }
+        ];
+
+        const range = XLSX.utils.decode_range(worksheet['!ref']);
+        for (let row = 1; row <= range.e.r; row++) {
+            const cellAddress = XLSX.utils.encode_cell({ r: row, c: 8 }); // Cột "Tất cả cập nhật"
+            if (worksheet[cellAddress]) {
+                worksheet[cellAddress].s = { alignment: { wrapText: true, vertical: 'top' } };
+            }
+        }
+
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Bao cao cap nhat');
+        const currentDate = new Date().toLocaleDateString('vi-VN').replace(/\//g, '-');
+        const filename = `Bao_cao_cap_nhat_moi_nhat_${currentDate}.xlsx`;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+        const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+        res.send(buffer);
+
+    } catch (error) {
+        console.error('Error exporting latest date updates report:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi khi xuất báo cáo chi tiết cập nhật',
+            error: error.message
+        });
+    }
+};
+
+// const normalizeStatus = (status) => {
+//     const statusMap = {
+//         'beingFollowedUp': 'Đang đôn đốc', 'beingSued': 'Đang khởi kiện',
+//         'awaitingJudgmentEffect': 'Chờ hiệu lực án', 'beingExecuted': 'Đang thi hành án',
+//         'proactivelySettled': 'Chủ động XLTS', 'debtSold': 'Bán nợ',
+//         'amcHired': 'Thuê AMC XLN', 'completed': 'Hoàn thành'
+//     };
+//     return statusMap[status] || status;
+// };
+//
+// const normalizeCaseType = (caseType) => {
+//     const typeMap = { 'internal': 'Nội bảng', 'external': 'Ngoại bảng' };
+//     return typeMap[caseType] || caseType;
+// };
+
+// Helper function for status display (reuse existing function)
+const getStatusDisplayName = (status) => {
+    const statusMap = {
+        'beingFollowedUp': 'Đang đôn đốc',
+        'beingSued': 'Đang khởi kiện',
+        'awaitingJudgmentEffect': 'Chờ hiệu lực án',
+        'beingExecuted': 'Đang thi hành án',
+        'proactivelySettled': 'Chủ động XLTS',
+        'debtSold': 'Bán nợ',
+        'amcHired': 'Thuê AMC XLN'
+    };
+    return statusMap[status] || status;
 };

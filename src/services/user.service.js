@@ -35,15 +35,29 @@ exports.createUser = async (userData) => {
     return userWithoutPassword;
 };
 
-exports.getAllUsers = async (user_employee_code) => {
+exports.getAllUsers = async (user_employee_code, filters = {}) => {
     const userRepository = AppDataSource.getRepository("User");
+    
+    // Build where condition
+    let whereCondition = {
+        employee_code: Not(user_employee_code)
+    };
+
+    // Add department filter if provided
+    if (filters.dept && filters.dept !== 'all') {
+        whereCondition.dept = filters.dept;
+    }
+
+    // Add branch filter if provided
+    if (filters.branch_code && filters.branch_code !== 'all') {
+        whereCondition.branch_code = filters.branch_code;
+    }
+
     return await userRepository.find({
-        where: {
-            employee_code: Not(user_employee_code)
-        },
+        where: whereCondition,
         // sắp xếp theo thời gian tạo mới nhất
         order: {
-            created_at: "DESC"
+            created_at: "ASC"
         }
     });
 };
@@ -237,6 +251,26 @@ exports.getEmployeesForFilter = async () => {
     console.log("Đã lấy danh sách nhân viên cho filter:", employees);
     
     return employees;
+};
+
+/**
+ * Lấy danh sách chi nhánh (branch) để hiển thị trong dropdown filter
+ */
+exports.getBranchesForFilter = async () => {
+    const userRepository = AppDataSource.getRepository("User");
+    
+    // Lấy danh sách branch_code và branch_name duy nhất từ bảng User
+    const branches = await userRepository
+        .createQueryBuilder("user")
+        .select([
+            "user.branch_code AS branch_code"
+        ])
+        .where("user.branch_code IS NOT NULL")
+        .groupBy("user.branch_code")
+        .orderBy("user.branch_code", "DESC")
+        .getRawMany();
+    
+    return branches;
 };
 
 // Xóa người dùng theo ID

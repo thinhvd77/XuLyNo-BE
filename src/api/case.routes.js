@@ -148,6 +148,15 @@ router.get(
   caseController.getStorageStats
 );
 
+// MỚI: Route để lấy thông tin tổng hợp của hồ sơ (details + updates + documents)
+// GET /api/cases/:caseId/overview
+router.get(
+    '/:caseId/overview',
+    protect,
+    authorize('employee', 'deputy_manager', 'manager', 'administrator', 'deputy_director', 'director'),
+    caseController.getCaseOverview
+);
+
 // MỚI: Route để lấy danh sách hồ sơ của CBTD
 // GET /api/cases/:caseId
 router.get(

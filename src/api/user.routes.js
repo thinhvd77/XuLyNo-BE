@@ -51,7 +51,7 @@ const updateUserValidationRules = [
     body("fullname").optional().notEmpty().withMessage("Họ và tên không được để trống."),
     body("dept")
         .optional()
-        .isIn(["KHCN", "KHDN", "KH&QLRR", "BGĐ", "IT"])
+        .isIn(["KHCN", "KHDN","KH", "KH&QLRR", "PGD", "BGĐ", "IT"])
         .withMessage("Phòng ban không hợp lệ."),
     body("role")
         .optional()
@@ -98,6 +98,14 @@ router.get(
     protect, // 1. Yêu cầu đăng nhập
     authorize("director", "deputy_director", "administrator"), // 2. Chỉ Giám đốc, Phó giám đốc và Administrator được phép truy cập
     userController.getEmployeesForFilter // 3. Xử lý logic
+);
+
+// Định nghĩa route: GET /api/users/branches-for-filter - Lấy danh sách chi nhánh để filter
+router.get(
+    "/branches-for-filter",
+    protect, // 1. Yêu cầu đăng nhập
+    authorize("director", "deputy_director", "administrator"), // 2. Chỉ Giám đốc, Phó giám đốc và Administrator được phép truy cập
+    userController.getBranchesForFilter // 3. Xử lý logic
 );
 
 // Định nghĩa route: GET /api/users/:id

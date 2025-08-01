@@ -136,6 +136,95 @@ exports.findCasesByEmployeeCode = async (employeeCode) => {
 };
 
 /**
+ * NEW: Tìm hồ sơ của nhân viên với phân trang và bộ lọc (giống như findDepartmentCases)
+ */
+exports.findMyCases = async (employeeCode, page = 1, filters = {}, limit = 20, sorting = {}) => {
+    const caseRepository = AppDataSource.getRepository("DebtCase");
+    const offset = (page - 1) * limit;
+
+    // Tạo query builder với join officer
+    let queryBuilder = caseRepository
+        .createQueryBuilder("debt_cases")
+        .leftJoinAndSelect("debt_cases.officer", "officer");
+
+    // Bộ lọc cơ bản: chỉ hiển thị cases được gán cho nhân viên này
+    queryBuilder = queryBuilder.andWhere("debt_cases.assigned_employee_code = :employeeCode", { employeeCode });
+
+    // Áp dụng bộ lọc tìm kiếm
+    if (filters.search) {
+        queryBuilder = queryBuilder.andWhere(
+            "(debt_cases.customer_name ILIKE :search OR debt_cases.case_id ILIKE :search OR debt_cases.customer_code ILIKE :search)",
+            { search: `%${filters.search}%` }
+        );
+    }
+
+    if (filters.type) {
+        queryBuilder = queryBuilder.andWhere("debt_cases.case_type = :type", { type: filters.type });
+    }
+
+    if (filters.status) {
+        queryBuilder = queryBuilder.andWhere("debt_cases.state = :status", { status: filters.status });
+    }
+
+    // Áp dụng sorting
+    if (sorting.sortBy && sorting.sortOrder) {
+        let orderByField;
+        let orderDirection = sorting.sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+        
+        switch (sorting.sortBy) {
+            case 'case_id':
+                orderByField = 'debt_cases.case_id';
+                break;
+            case 'customer_code':
+                orderByField = 'debt_cases.customer_code';
+                break;
+            case 'customer_name':
+                orderByField = 'debt_cases.customer_name';
+                break;
+            case 'outstanding_debt':
+                orderByField = 'debt_cases.outstanding_debt';
+                break;
+            case 'case_type':
+                orderByField = 'debt_cases.case_type';
+                break;
+            case 'state':
+                orderByField = 'debt_cases.state';
+                break;
+            case 'last_modified_date':
+                orderByField = 'debt_cases.last_modified_date';
+                break;
+            default:
+                orderByField = 'debt_cases.last_modified_date';
+                orderDirection = 'DESC';
+        }
+        
+        queryBuilder = queryBuilder.orderBy(orderByField, orderDirection);
+    } else {
+        // Mặc định sắp xếp theo ngày cập nhật mới nhất
+        queryBuilder = queryBuilder.orderBy('debt_cases.last_modified_date', 'DESC');
+    }
+
+    // Lấy tổng số và áp dụng phân trang
+    const [cases, totalCases] = await queryBuilder
+        .offset(offset)
+        .limit(limit)
+        .getManyAndCount();
+
+    const totalPages = Math.ceil(totalCases / limit);
+
+    return {
+        success: true,
+        data: {
+            cases,
+            totalCases,
+            totalPages,
+            currentPage: parseInt(page),
+            itemsPerPage: parseInt(limit)
+        }
+    };
+};
+
+/**
  * MỚI: Tìm tất cả hồ sơ với phân trang và bộ lọc (dành cho Ban Giám Đốc)
  */
 exports.findAllCases = async (page = 1, filters = {}, limit = 20, sorting = {}) => {
@@ -450,19 +539,97 @@ exports.getCaseById = async (caseId) => {
 };
 
 /**
- * MỚI: Lấy danh sách cập nhật của hồ sơ
- * @param {string} caseId - ID của hồ sơ
+ * NEW: Lấy thông tin tổng hợp của case (bao gồm details, updates, và documents)
+ * @param {string} caseId - ID của case
+ * @param {number} limit - Số lượng updates tối đa (mặc định 10)
  */
-exports.getCaseUpdates = async (caseId) => {
+exports.getCaseOverview = async (caseId, limit = 10) => {
+    const caseRepository = AppDataSource.getRepository("DebtCase");
+    const caseUpdateRepository = AppDataSource.getRepository("CaseUpdate");
+    const caseDocumentRepository = AppDataSource.getRepository("CaseDocument");
+
+    // Fetch case details
+    const caseDetail = await caseRepository.findOne({
+        where: { case_id: caseId },
+        relations: ['officer']
+    });
+
+    if (!caseDetail) {
+        throw new Error("Hồ sơ không tìm thấy.");
+    }
+
+    // Fetch recent updates (limited)
+    const recentUpdates = await caseUpdateRepository.find({
+        where: { case_id: caseId },
+        relations: ['officer'],
+        order: { created_date: 'DESC' },
+        take: limit
+    });
+
+    // Fetch all documents with uploader info
+    const documents = await caseDocumentRepository.find({
+        where: { case_id: caseId },
+        relations: ['uploader'],
+        order: { upload_date: 'DESC' }
+    });
+
+    // Get total update count for pagination info
+    const totalUpdates = await caseUpdateRepository.count({
+        where: { case_id: caseId }
+    });
+
+    return {
+        caseDetail,
+        recentUpdates,
+        documents,
+        updatesPagination: {
+            total: totalUpdates,
+            loaded: recentUpdates.length,
+            hasMore: totalUpdates > limit
+        }
+    };
+};
+
+/**
+ * MỚI: Lấy danh sách cập nhật của hồ sơ với phân trang
+ * @param {string} caseId - ID của hồ sơ
+ * @param {number} page - Trang hiện tại (mặc định: 1)
+ * @param {number} limit - Số lượng bản ghi trên trang (mặc định: 5)
+ */
+exports.getCaseUpdates = async (caseId, page = 1, limit = 5) => {
     const caseUpdateRepository = AppDataSource.getRepository("CaseUpdate");
     
+    // Tính offset
+    const offset = (page - 1) * limit;
+    
+    // Lấy tổng số bản ghi
+    const total = await caseUpdateRepository.count({
+        where: { case_id: caseId }
+    });
+    
+    // Lấy dữ liệu với phân trang
     const updates = await caseUpdateRepository.find({
         where: { case_id: caseId },
         relations: ['officer'], // Load thông tin officer thay vì author
-        order: { created_date: 'DESC' } // Sắp xếp theo ngày tạo mới nhất
+        order: { created_date: 'DESC' }, // Sắp xếp theo ngày tạo mới nhất
+        skip: offset,
+        take: limit
     });
     
-    return updates;
+    // Tính toán thông tin phân trang
+    const totalPages = Math.ceil(total / limit);
+    const hasMore = page < totalPages;
+    
+    return {
+        updates,
+        pagination: {
+            currentPage: page,
+            totalPages,
+            total,
+            limit,
+            hasMore
+        }
+    };
 };
 
 /**

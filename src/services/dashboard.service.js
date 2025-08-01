@@ -32,14 +32,13 @@ exports.getDashboardStats = async () => {
     // 3. SỬA LẠI Ở ĐÂY: Lấy danh sách CBTD và số case của từng người bằng LEFT JOIN
     const officersWithCaseCount = await officerRepository
         .createQueryBuilder("user")
-        .leftJoin("debt_cases", "cases", "cases.assigned_employee_code = user.employee_code")
+        .innerJoin("debt_cases", "cases", "cases.assigned_employee_code = user.employee_code")
         .select([
             "user.employee_code AS employee_code",
             "user.fullname AS fullname",
             "user.role AS role",
         ])
         .addSelect("COUNT(cases.case_id)", "caseCount")
-        .where("user.role = :role", { role: "employee" })
         .groupBy("user.employee_code, user.fullname, user.role") // Nhóm theo tất cả các trường không tổng hợp
         .orderBy("\"caseCount\"", "DESC") // Dùng dấu ngoặc kép để tham chiếu đến alias
         .getRawMany();
