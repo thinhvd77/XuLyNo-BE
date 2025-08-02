@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { getAbsoluteFilePath, extractFilePathInfo, getFilePathBreadcrumb } = require('../utils/filePathHelper');
+const { getAbsoluteFilePath } = require('../utils/filePathHelper');
 
 /**
  * Lấy cấu trúc cây thư mục cho một CBTD
@@ -59,7 +59,7 @@ const getDirectoryStructure = (cbtdName) => {
                             };
                             
                             if (fs.existsSync(docTypeDir)) {
-                                const files = fs.readdirSync(docTypeDir, { withFileTypes: true })
+                                docTypeObj.files = fs.readdirSync(docTypeDir, {withFileTypes: true})
                                     .filter(dirent => dirent.isFile())
                                     .map(dirent => {
                                         const filePath = path.join(docTypeDir, dirent.name);
@@ -71,8 +71,6 @@ const getDirectoryStructure = (cbtdName) => {
                                             relativePath: path.relative(process.cwd(), filePath)
                                         };
                                     });
-                                
-                                docTypeObj.files = files;
                             }
                             
                             caseTypeObj.documentTypes.push(docTypeObj);
@@ -161,7 +159,7 @@ const getStorageStats = () => {
 };
 
 /**
- * Format file size to human readable format
+ * Format file size to human-readable format
  */
 const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 Bytes';

@@ -1,80 +1,163 @@
 const AppDataSource = require("../config/dataSource");
 const bcrypt = require("bcrypt");
 const { Not, In } = require("typeorm");
-const User = require("../models/User").User;
+const logger = require("../config/logger");
+
+/**
+ * [HELPER] Loại bỏ trường password khỏi đối tượng user trước khi trả về.
+ * @param {ObjectLiteral} user - Đối tượng người dùng từ TypeORM
+ */
+const toUserResponse = (user) => {
+    try {
+        if (!user) return null;
+        const { password, ...response } = user;
+        return response;
+    } catch (error) {
+        logger.error('Error in toUserResponse:', error);
+        return null;
+    }
+};
 
 /**
  * Tạo một CBTD mới
  * @param {object} userData - Dữ liệu người dùng từ controller
  */
 exports.createUser = async (userData) => {
-    const userRepository = AppDataSource.getRepository("User");
-    const { username, employee_code, password } = userData;
+    try {
+        if (!userData) {
+            throw new Error('User data is required');
+        }
 
-    // 1. Kiểm tra username hoặc mã nhân viên đã tồn tại chưa
-    const existingUser = await userRepository.findOne({
-        where: [{ username }, { employee_code }],
-    });
-    if (existingUser) {
-        throw new Error("Tên đăng nhập hoặc Mã nhân viên đã tồn tại.");
+        const { username, employee_code, password } = userData;
+
+        if (!username || !employee_code || !password) {
+            throw new Error('Username, employee_code, and password are required');
+        }
+
+        const userRepository = AppDataSource.getRepository("User");
+
+        // 1. Kiểm tra username hoặc mã nhân viên đã tồn tại chưa
+        let existingUser;
+        try {
+            existingUser = await userRepository.findOne({
+                where: [{ username }, { employee_code }],
+            });
+        } catch (dbError) {
+            logger.error('Database error checking existing user:', dbError);
+            throw new Error('Failed to check existing user');
+        }
+
+        if (existingUser) {
+            throw new Error("Tên đăng nhập hoặc Mã nhân viên đã tồn tại.");
+        }
+
+        // 2. Băm mật khẩu
+        let hashedPassword;
+        try {
+            hashedPassword = await bcrypt.hash(password, 10);
+        } catch (hashError) {
+            logger.error('Error hashing password:', hashError);
+            throw new Error('Failed to process password');
+        }
+
+        // 3. Tạo và lưu người dùng mới
+        const newUser = userRepository.create({
+            ...userData,
+            password: hashedPassword,
+        });
+
+        try {
+            await userRepository.save(newUser);
+        } catch (saveError) {
+            logger.error('Error saving new user:', saveError);
+            throw new Error('Failed to create user');
+        }
+
+        // 4. Trả về dữ liệu người dùng (loại bỏ mật khẩu)
+        const { password: _, ...userWithoutPassword } = newUser;
+        logger.info(`User created successfully: ${employee_code}`);
+        return userWithoutPassword;
+
+    } catch (error) {
+        logger.error('Error in createUser:', error);
+        throw error;
     }
-
-    // 2. Băm mật khẩu
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // 3. Tạo và lưu người dùng mới
-    const newUser = userRepository.create({
-        ...userData,
-        password: hashedPassword,
-    });
-
-    await userRepository.save(newUser);
-
-    // 4. Trả về dữ liệu người dùng (loại bỏ mật khẩu)
-    const { password: _, ...userWithoutPassword } = newUser;
-    return userWithoutPassword;
 };
 
 exports.getAllUsers = async (user_employee_code, filters = {}) => {
-    const userRepository = AppDataSource.getRepository("User");
-    
-    // Build where condition
-    let whereCondition = {
-        employee_code: Not(user_employee_code)
-    };
-
-    // Add department filter if provided
-    if (filters.dept && filters.dept !== 'all') {
-        whereCondition.dept = filters.dept;
-    }
-
-    // Add branch filter if provided
-    if (filters.branch_code && filters.branch_code !== 'all') {
-        whereCondition.branch_code = filters.branch_code;
-    }
-
-    return await userRepository.find({
-        where: whereCondition,
-        // sắp xếp theo thời gian tạo mới nhất
-        order: {
-            created_at: "ASC"
+    try {
+        if (!user_employee_code) {
+            throw new Error('User employee code is required');
         }
-    });
+
+        const userRepository = AppDataSource.getRepository("User");
+
+        // Build where condition with validation
+        let whereCondition = {
+            employee_code: Not(user_employee_code)
+        };
+
+        // Add department filter if provided and valid
+        if (filters.dept && typeof filters.dept === 'string' && filters.dept !== 'all') {
+            whereCondition.dept = filters.dept;
+        }
+
+        // Add branch filter if provided and valid
+        if (filters.branch_code && typeof filters.branch_code === 'string' && filters.branch_code !== 'all') {
+            whereCondition.branch_code = filters.branch_code;
+        }
+
+        let users;
+        try {
+            users = await userRepository.find({
+                where: whereCondition,
+                order: {created_at: "ASC"},
+                select: ["employee_code", "username", "fullname", "branch_code", "dept", "role", "status", "created_at"]
+            });
+        } catch (dbError) {
+            logger.error('Database error in getAllUsers:', dbError);
+            throw new Error('Failed to retrieve users');
+        }
+
+        logger.info(`Retrieved ${users.length} users for employee ${user_employee_code}`);
+        return users;
+
+    } catch (error) {
+        logger.error('Error in getAllUsers:', error);
+        throw error;
+    }
 };
 
 exports.getUserById = async (id) => {
-    const userRepository = AppDataSource.getRepository("User");
-    const user = await userRepository.findOne({
-        where: { employee_code: id },
-    });
+    try {
+        if (!id) {
+            throw new Error('User ID is required');
+        }
 
-    if (!user) {
-        throw new Error("Người dùng không tồn tại.");
+        const userRepository = AppDataSource.getRepository("User");
+
+        let user;
+        try {
+            user = await userRepository.findOne({
+                where: { employee_code: id },
+            });
+        } catch (dbError) {
+            logger.error(`Database error getting user ${id}:`, dbError);
+            throw new Error('Failed to retrieve user');
+        }
+
+        if (!user) {
+            throw new Error("Người dùng không tồn tại.");
+        }
+
+        // Trả về dữ liệu người dùng (loại bỏ mật khẩu)
+        const { password: _, ...userWithoutPassword } = user;
+        return userWithoutPassword;
+
+    } catch (error) {
+        logger.error(`Error in getUserById for ${id}:`, error);
+        throw error;
     }
-
-    // Trả về dữ liệu người dùng (loại bỏ mật khẩu)
-    const { password: _, ...userWithoutPassword } = user;
-    return userWithoutPassword;
 };
 
 /**
@@ -83,61 +166,84 @@ exports.getUserById = async (id) => {
  * @param {object} updateData - Dữ liệu cần cập nhật
  */
 exports.updateUser = async (id, updateData) => {
-    const userRepository = AppDataSource.getRepository("User");
-    
-    // 1. Tìm user cần update
-    const existingUser = await userRepository.findOne({
-        where: { employee_code: id },
-    });
-
-    if (!existingUser) {
-        throw new Error("Người dùng không tìm thấy.");
-    }
-
-    // 2. Kiểm tra username và employee_code có bị trùng với user khác không
-    if (updateData.username && updateData.username !== existingUser.username) {
-        const userWithSameUsername = await userRepository.findOne({
-            where: { 
-                username: updateData.username,
-                employee_code: Not(id) // Loại trừ user hiện tại
-            },
-        });
-        if (userWithSameUsername) {
-            throw new Error("Tên đăng nhập đã tồn tại.");
+    try {
+        if (!id) {
+            throw new Error('User ID is required');
         }
-    }
 
-    if (updateData.employee_code && updateData.employee_code !== existingUser.employee_code) {
-        const userWithSameEmployeeCode = await userRepository.findOne({
-            where: { 
-                employee_code: updateData.employee_code,
-                employee_code: Not(id) // Loại trừ user hiện tại
-            },
-        });
-        if (userWithSameEmployeeCode) {
-            throw new Error("Mã nhân viên đã tồn tại.");
+        if (!updateData || typeof updateData !== 'object') {
+            throw new Error('Update data is required');
         }
+
+        const userRepository = AppDataSource.getRepository("User");
+
+        let userToUpdate;
+        try {
+            userToUpdate = await userRepository.findOneBy({ employee_code: id });
+        } catch (dbError) {
+            logger.error(`Database error finding user ${id}:`, dbError);
+            throw new Error('Failed to find user');
+        }
+
+        if (!userToUpdate) {
+            throw new Error("Người dùng không tìm thấy.");
+        }
+
+        // Gộp 2 lần kiểm tra trùng lặp vào 1 câu truy vấn
+        if (updateData.username || updateData.employee_code) {
+            const checkConditions = [];
+            if (updateData.username) checkConditions.push({ username: updateData.username });
+            if (updateData.employee_code) checkConditions.push({ employee_code: updateData.employee_code });
+
+            let duplicateUser;
+            try {
+                duplicateUser = await userRepository.findOne({
+                    where: checkConditions,
+                });
+            } catch (dbError) {
+                logger.error('Database error checking duplicates:', dbError);
+                throw new Error('Failed to validate user data');
+            }
+
+            // Kiểm tra trùng lặp (nhưng bỏ qua chính user đang được cập nhật)
+            if (duplicateUser && duplicateUser.employee_code !== id) {
+                throw new Error("Tên đăng nhập hoặc Mã nhân viên đã tồn tại.");
+            }
+        }
+
+        // Băm mật khẩu mới nếu có
+        if (updateData.password) {
+            try {
+                updateData.password = await bcrypt.hash(updateData.password, 10);
+            } catch (hashError) {
+                logger.error('Error hashing password for update:', hashError);
+                throw new Error('Failed to process password');
+            }
+        }
+
+        try {
+            await userRepository.update({ employee_code: id }, updateData);
+        } catch (updateError) {
+            logger.error(`Database error updating user ${id}:`, updateError);
+            throw new Error('Failed to update user');
+        }
+
+        // Lấy lại thông tin user đã cập nhật
+        let updatedUser;
+        try {
+            updatedUser = await userRepository.findOneBy({ employee_code: id });
+        } catch (dbError) {
+            logger.error(`Database error retrieving updated user ${id}:`, dbError);
+            throw new Error('User updated but failed to retrieve updated data');
+        }
+
+        logger.info(`User updated successfully: ${id}`);
+        return toUserResponse(updatedUser);
+
+    } catch (error) {
+        logger.error(`Error in updateUser for ${id}:`, error);
+        throw error;
     }
-
-    // 3. Băm mật khẩu mới nếu có
-    if (updateData.password) {
-        updateData.password = await bcrypt.hash(updateData.password, 10);
-    }
-
-    // 4. Cập nhật user
-    await userRepository.update(
-        { employee_code: id },
-        updateData
-    );
-
-    // 5. Lấy user đã được cập nhật
-    const updatedUser = await userRepository.findOne({
-        where: { employee_code: updateData.employee_code || id },
-    });
-
-    // 6. Trả về dữ liệu user (loại bỏ mật khẩu)
-    const { password: _, ...userWithoutPassword } = updatedUser;
-    return userWithoutPassword;
 };
 
 /**
@@ -146,34 +252,15 @@ exports.updateUser = async (id, updateData) => {
  */
 exports.toggleUserStatus = async (id) => {
     const userRepository = AppDataSource.getRepository("User");
-    
-    // 1. Tìm user cần toggle status
-    const existingUser = await userRepository.findOne({
-        where: { employee_code: id },
-    });
+    const userToUpdate = await userRepository.findOneBy({ employee_code: id });
+    if (!userToUpdate) throw new Error("Người dùng không tìm thấy.");
 
-    if (!existingUser) {
-        throw new Error("Người dùng không tìm thấy.");
-    }
+    userToUpdate.status = userToUpdate.status === 'active' ? 'disabled' : 'active';
+    const updatedUser = await userRepository.save(userToUpdate);
 
-    // 2. Toggle status: active <-> disabled
-    const newStatus = existingUser.status === 'active' ? 'disabled' : 'active';
-
-    // 3. Cập nhật status
-    await userRepository.update(
-        { employee_code: id },
-        { status: newStatus }
-    );
-
-    // 4. Lấy user đã được cập nhật
-    const updatedUser = await userRepository.findOne({
-        where: { employee_code: id },
-    });
-
-    // 5. Trả về dữ liệu user (loại bỏ mật khẩu)
-    const { password: _, ...userWithoutPassword } = updatedUser;
-    return userWithoutPassword;
+    return toUserResponse(updatedUser);
 };
+
 
 /**
  * Change user password
@@ -182,33 +269,13 @@ exports.toggleUserStatus = async (id) => {
  */
 exports.changeUserPassword = async (id, newPassword) => {
     const userRepository = AppDataSource.getRepository("User");
-    
-    // 1. Tìm user cần đổi mật khẩu
-    const existingUser = await userRepository.findOne({
-        where: { employee_code: id },
-    });
+    const userToUpdate = await userRepository.findOneBy({ employee_code: id });
+    if (!userToUpdate) throw new Error("Người dùng không tìm thấy.");
 
-    if (!existingUser) {
-        throw new Error("Người dùng không tìm thấy.");
-    }
+    userToUpdate.password = await bcrypt.hash(newPassword, 10);
+    const updatedUser = await userRepository.save(userToUpdate);
 
-    // 2. Băm mật khẩu mới
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-    // 3. Cập nhật mật khẩu
-    await userRepository.update(
-        { employee_code: id },
-        { password: hashedPassword }
-    );
-
-    // 4. Lấy user đã được cập nhật
-    const updatedUser = await userRepository.findOne({
-        where: { employee_code: id },
-    });
-
-    // 5. Trả về dữ liệu user (loại bỏ mật khẩu)
-    const { password: _, ...userWithoutPassword } = updatedUser;
-    return userWithoutPassword;
+    return toUserResponse(updatedUser);
 };
 
 /**
@@ -234,23 +301,51 @@ exports.findOfficersByManager = async (manager) => {
 /**
  * MỚI: Lấy danh sách tất cả nhân viên để sử dụng cho filter dropdown
  */
-exports.getEmployeesForFilter = async () => {
-    console.log("Đang lấy danh sách nhân viên cho filter...");
-    
-    const userRepository = AppDataSource.getRepository("User");
-    const employees = await userRepository.find({
-        where: {
-            dept: In(["KH", "KHDN", "KHCN", "PGD"]), // Chỉ lấy nhân viên (CBTD)
-            status: "active"  // Chỉ lấy nhân viên đang hoạt động
-        },
-        select: ["employee_code", "fullname"], // Chỉ trả về mã và tên nhân viên
-        order: {
-            fullname: "ASC" // Sắp xếp theo tên
+exports.getEmployeesForFilter = async (directorBranchCode = null) => {
+    try {
+        logger.info("Starting to fetch employees for filter dropdown", { directorBranchCode });
+
+        if (!directorBranchCode) {
+            throw new Error('Director branch code is required');
         }
-    });
-    console.log("Đã lấy danh sách nhân viên cho filter:", employees);
-    
-    return employees;
+
+        const userRepository = AppDataSource.getRepository("User");
+
+        // Build where condition based on director's branch
+        let whereCondition = {
+            dept: In(["KH", "KHDN", "KHCN", "PGD"]),
+            status: "active"
+        };
+
+        // Branch-based access control
+        if (directorBranchCode !== '6421') {
+            // Non-6421 directors can only see employees from their own branch
+            whereCondition.branch_code = directorBranchCode;
+            logger.info(`Applying branch filter for director: ${directorBranchCode}`);
+        } else {
+            // Directors from branch 6421 can see all employees
+            logger.info('Director from branch 6421 - showing all employees');
+        }
+
+        let employees;
+        try {
+            employees = await userRepository.find({
+                where: whereCondition,
+                select: ["employee_code", "fullname", "branch_code"],
+                order: { fullname: "ASC" }
+            });
+        } catch (dbError) {
+            logger.error('Database error in getEmployeesForFilter:', dbError);
+            throw new Error('Failed to retrieve employees');
+        }
+
+        logger.info(`Successfully retrieved ${employees.length} employees for director branch ${directorBranchCode}`);
+        return employees;
+
+    } catch (error) {
+        logger.error('Error in getEmployeesForFilter:', error);
+        throw error;
+    }
 };
 
 /**

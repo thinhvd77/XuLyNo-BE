@@ -13,18 +13,13 @@ const CASE_STATUS = {
     BEING_EXECUTED: 'Đang thi hành án',
     PROACTIVELY_SETTLED: 'Chủ động XLTS',
     DEBT_SOLD: 'Bán nợ',
-    AMC_HIRED: 'Thuê AMC XLN',
-    COMPLETED: 'Hoàn thành',
-    OVERDUE: 'Quá hạn',
-    PENDING: 'Chờ xử lý',
-    REJECTED: 'Từ chối',
-    APPROVED: 'Đã duyệt'
+    AMC_HIRED: 'Thuê AMC XLN'
 };
 
 // Loại case
 const CASE_TYPE = {
-    INTERNAL: 'Nội bảng',
-    EXTERNAL: 'Ngoại bảng'
+    INTERNAL: 'internal', // Nội bảng
+    EXTERNAL: 'external'  // Ngoại bảng
 };
 
 // Mapping từ các giá trị cũ sang giá trị chuẩn (tiếng Việt)
@@ -37,13 +32,7 @@ const STATUS_MAPPING = {
     'proactivelySettled': CASE_STATUS.PROACTIVELY_SETTLED,
     'debtSold': CASE_STATUS.DEBT_SOLD,
     'amcHired': CASE_STATUS.AMC_HIRED,
-    'completed': CASE_STATUS.COMPLETED,
-    'new': CASE_STATUS.NEW,
-    'processing': CASE_STATUS.PROCESSING,
-    'overdue': CASE_STATUS.OVERDUE,
-    'pending': CASE_STATUS.PENDING,
-    'rejected': CASE_STATUS.REJECTED,
-    'approved': CASE_STATUS.APPROVED,
+
     // Vietnamese values (keep as is)
     [CASE_STATUS.NEW]: CASE_STATUS.NEW,
     [CASE_STATUS.PROCESSING]: CASE_STATUS.PROCESSING,
@@ -54,11 +43,7 @@ const STATUS_MAPPING = {
     [CASE_STATUS.PROACTIVELY_SETTLED]: CASE_STATUS.PROACTIVELY_SETTLED,
     [CASE_STATUS.DEBT_SOLD]: CASE_STATUS.DEBT_SOLD,
     [CASE_STATUS.AMC_HIRED]: CASE_STATUS.AMC_HIRED,
-    [CASE_STATUS.COMPLETED]: CASE_STATUS.COMPLETED,
-    [CASE_STATUS.OVERDUE]: CASE_STATUS.OVERDUE,
-    [CASE_STATUS.PENDING]: CASE_STATUS.PENDING,
-    [CASE_STATUS.REJECTED]: CASE_STATUS.REJECTED,
-    [CASE_STATUS.APPROVED]: CASE_STATUS.APPROVED
+
 };
 
 const CASE_TYPE_MAPPING = {

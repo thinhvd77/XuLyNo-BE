@@ -1,103 +1,147 @@
 const { validationResult } = require("express-validator");
 const userService = require("../services/user.service");
+const logger = require("../config/logger");
+const {
+    asyncHandler,
+    ValidationError,
+    NotFoundError
+} = require("../middleware/errorHandler");
 
-exports.createUser = async (req, res) => {
-    // 1. Kiểm tra kết quả validation
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-    }
-
+exports.createUser = asyncHandler(async (req, res) => {
     try {
+        // 1. Kiểm tra kết quả validation
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            throw new ValidationError("Dữ liệu không hợp lệ", errors.array());
+        }
+
+        if (!req.body) {
+            throw new ValidationError("Request body is required");
+        }
+
         // 2. Gọi service để tạo user
         const newUser = await userService.createUser(req.body);
+
+        if (!newUser) {
+            throw new Error("Failed to create user");
+        }
+
+        logger.info(`User created successfully by ${req.user?.employee_code}: ${newUser.employee_code}`);
+
         res.status(201).json({
             success: true,
             message: "Tạo người dùng thành công!",
             user: newUser,
         });
     } catch (error) {
-        // 3. Xử lý lỗi (ví dụ: username đã tồn tại)
-        res.status(409).json({ success: false, message: error.message });
+        logger.error("Error in createUser:", error);
+        throw error;
     }
-};
+});
 
-exports.getAllUsers = async (req, res) => {
+exports.getAllUsers = asyncHandler(async (req, res) => {
     try {
-        // Extract filter parameters from query string
+        if (!req.user || !req.user.employee_code) {
+            throw new ValidationError("User authentication required");
+        }
+
+        // Extract filter parameters from query string with validation
         const filters = {
-            dept: req.query.dept,
-            branch_code: req.query.branch_code
+            dept: req.query.dept && typeof req.query.dept === 'string' ? req.query.dept : undefined,
+            branch_code: req.query.branch_code && typeof req.query.branch_code === 'string' ? req.query.branch_code : undefined
         };
 
         // 1. Gọi service để lấy danh sách người dùng với filters
         const users = await userService.getAllUsers(req.user.employee_code, filters);
+
+        if (!Array.isArray(users)) {
+            throw new Error("Invalid response from user service");
+        }
+
+        logger.info(`Retrieved ${users.length} users for ${req.user.employee_code}`);
+
         res.status(200).json({
             success: true,
             users: users,
         });
     } catch (error) {
-        // 2. Xử lý lỗi nếu có
-        res.status(500).json({ success: false, message: error.message });
+        logger.error("Error in getAllUsers:", error);
+        throw error;
     }
-}
+});
 
-exports.getUserById = async (req, res) => {
-    const { id } = req.params;
-
+exports.getUserById = asyncHandler(async (req, res) => {
     try {
+        const { id } = req.params;
+
+        if (!id) {
+            throw new ValidationError("User ID is required");
+        }
+
         // 1. Gọi service để lấy người dùng theo ID
         const user = await userService.getUserById(id);
+
+        if (!user) {
+            throw new NotFoundError("User not found");
+        }
+
+        logger.info(`User retrieved: ${id}`);
+
         res.status(200).json({
             success: true,
             user: user,
         });
     } catch (error) {
-        // 2. Xử lý lỗi nếu người dùng không tồn tại
-        res.status(404).json({ success: false, message: error.message });
+        logger.error(`Error in getUserById for ${req.params.id}:`, error);
+        throw error;
     }
-}
+});
 
 /**
  * Update user by ID
  */
-exports.updateUser = async (req, res) => {
-    // 1. Kiểm tra kết quả validation
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ 
-            success: false,
-            message: "Dữ liệu không hợp lệ.",
-            errors: errors.array() 
-        });
-    }
-
-    const { id } = req.params;
-
+exports.updateUser = asyncHandler(async (req, res) => {
     try {
+        // 1. Kiểm tra kết quả validation
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            throw new ValidationError("Dữ liệu không hợp lệ", errors.array());
+        }
+
+        const { id } = req.params;
+
+        if (!id) {
+            throw new ValidationError("User ID is required");
+        }
+
+        if (!req.body || Object.keys(req.body).length === 0) {
+            throw new ValidationError("Update data is required");
+        }
+
         // 2. Gọi service để cập nhật user
         const updatedUser = await userService.updateUser(id, req.body);
+
+        if (!updatedUser) {
+            throw new NotFoundError("User not found or update failed");
+        }
+
+        logger.info(`User updated successfully by ${req.user?.employee_code}: ${id}`);
+
         res.status(200).json({
             success: true,
             message: "Cập nhật người dùng thành công!",
             user: updatedUser,
         });
     } catch (error) {
-        // 3. Xử lý lỗi (ví dụ: user không tồn tại, username đã tồn tại)
-        if (error.message.includes('không tìm thấy')) {
-            res.status(404).json({ success: false, message: error.message });
-        } else if (error.message.includes('đã tồn tại')) {
-            res.status(409).json({ success: false, message: error.message });
-        } else {
-            res.status(500).json({ success: false, message: error.message });
-        }
+        logger.error(`Error in updateUser for ${req.params.id}:`, error);
+        throw error;
     }
-};
+});
 
 /**
  * Toggle user status (enable/disable)
  */
-exports.toggleUserStatus = async (req, res) => {
+exports.toggleUserStatus = asyncHandler(async (req, res) => {
     const { id } = req.params;
 
     try {
@@ -116,12 +160,12 @@ exports.toggleUserStatus = async (req, res) => {
             res.status(500).json({ success: false, message: error.message });
         }
     }
-};
+});
 
 /**
  * Change user password
  */
-exports.changeUserPassword = async (req, res) => {
+exports.changeUserPassword = asyncHandler(async (req, res) => {
     // 1. Kiểm tra kết quả validation
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -151,12 +195,12 @@ exports.changeUserPassword = async (req, res) => {
             res.status(500).json({ success: false, message: error.message });
         }
     }
-};
+});
 
 /**
  * MỚI: Lấy danh sách nhân viên thuộc quyền quản lý
  */
-exports.getManagedOfficers = async (req, res) => {
+exports.getManagedOfficers = asyncHandler(async (req, res) => {
     try {
         // req.user chứa thông tin của Trưởng/Phó phòng đang đăng nhập
         const manager = req.user;
@@ -166,29 +210,62 @@ exports.getManagedOfficers = async (req, res) => {
         console.error("Lỗi khi lấy danh sách nhân viên:", error);
         res.status(500).json({ success: false, message: "Đã có lỗi xảy ra trên server." });
     }
-};
+});
 
 /**
  * MỚI: Lấy danh sách tất cả nhân viên để sử dụng cho filter dropdown
  */
-exports.getEmployeesForFilter = async (req, res) => {
-    console.log("Đang lấy danh sách nhân viên cho filter...");
+exports.getEmployeesForFilter = asyncHandler(async (req, res) => {
     try {
-        const employees = await userService.getEmployeesForFilter();
+        if (!req.user || !req.user.branch_code) {
+            throw new ValidationError("User branch information not available");
+        }
+
+        // Extract director's branch code from authenticated user
+        const directorBranchCode = req.user.branch_code;
+
+        logger.info("Fetching employees for filter with branch-based access control", {
+            director: req.user.employee_code,
+            directorBranch: directorBranchCode
+        });
+
+        const employees = await userService.getEmployeesForFilter(directorBranchCode);
+
+        if (!Array.isArray(employees)) {
+            throw new Error("Invalid response from user service");
+        }
+
+        // Log the filtering result for audit purposes
+        logger.info(`Employee filter applied successfully`, {
+            director: req.user.employee_code,
+            directorBranch: directorBranchCode,
+            employeesReturned: employees.length,
+            isUnrestricted: directorBranchCode === '6421'
+        });
+
         res.status(200).json({
             success: true,
-            employees: employees
+            employees: employees,
+            metadata: {
+                totalEmployees: employees.length,
+                branchFilter: directorBranchCode !== '6421' ? directorBranchCode : null,
+                isUnrestricted: directorBranchCode === '6421'
+            }
         });
     } catch (error) {
-        console.error("Lỗi khi lấy danh sách nhân viên cho filter:", error);
-        res.status(500).json({ success: false, message: "Đã có lỗi xảy ra trên server." });
+        logger.error("Error in getEmployeesForFilter:", {
+            error: error.message,
+            user: req.user?.employee_code,
+            branch: req.user?.branch_code
+        });
+        throw error;
     }
-};
+});
 
 /**
  * API để lấy danh sách chi nhánh (branch) để hiển thị trong dropdown filter
  */
-exports.getBranchesForFilter = async (req, res) => {
+exports.getBranchesForFilter = asyncHandler(async (req, res) => {
     try {
         const branches = await userService.getBranchesForFilter();
         res.status(200).json({
@@ -199,9 +276,9 @@ exports.getBranchesForFilter = async (req, res) => {
         console.error("Lỗi khi lấy danh sách chi nhánh cho filter:", error);
         res.status(500).json({ success: false, message: "Đã có lỗi xảy ra trên server." });
     }
-};
+});
 
-exports.deleteUserById = async (req, res) => {
+exports.deleteUserById = asyncHandler(async (req, res) => {
     const { id } = req.params;
 
     try {
@@ -212,4 +289,4 @@ exports.deleteUserById = async (req, res) => {
         // 2. Xử lý lỗi nếu người dùng không tồn tại hoặc không thể xóa
         res.status(404).json({ success: false, message: error.message });
     }
-}
+});

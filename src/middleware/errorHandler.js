@@ -1,144 +1,232 @@
-const { createChildLogger } = require('../config/logger');
+const logger = require('../config/logger');
 
-const errorLogger = createChildLogger('error-handler');
-
-// Custom error class for application-specific errors
+/**
+ * Custom Error Classes for better error handling
+ */
 class AppError extends Error {
-    constructor(message, statusCode, isOperational = true, stack = '') {
+    constructor(message, statusCode, errorCode = null, details = null) {
         super(message);
         this.statusCode = statusCode;
-        this.isOperational = isOperational;
+        this.errorCode = errorCode;
+        this.details = details;
+        this.isOperational = true;
+        this.timestamp = new Date().toISOString();
 
-        if (stack) {
-            this.stack = stack;
-        } else {
-            Error.captureStackTrace(this, this.constructor);
-        }
+        Error.captureStackTrace(this, this.constructor);
     }
 }
 
-// Error handling middleware
+class ValidationError extends AppError {
+    constructor(message, details = null) {
+        super(message, 400, 'VALIDATION_ERROR', details);
+    }
+}
+
+class AuthenticationError extends AppError {
+    constructor(message = 'Authentication failed') {
+        super(message, 401, 'AUTHENTICATION_ERROR');
+    }
+}
+
+class AuthorizationError extends AppError {
+    constructor(message = 'Access denied') {
+        super(message, 403, 'AUTHORIZATION_ERROR');
+    }
+}
+
+class NotFoundError extends AppError {
+    constructor(message = 'Resource not found') {
+        super(message, 404, 'NOT_FOUND_ERROR');
+    }
+}
+
+class DatabaseError extends AppError {
+    constructor(message = 'Database operation failed', details = null) {
+        super(message, 500, 'DATABASE_ERROR', details);
+    }
+}
+
+class FileOperationError extends AppError {
+    constructor(message = 'File operation failed', details = null) {
+        super(message, 500, 'FILE_OPERATION_ERROR', details);
+    }
+}
+
+/**
+ * Error handler middleware
+ */
 const errorHandler = (err, req, res, next) => {
     let error = { ...err };
     error.message = err.message;
 
     // Log error details
-    const errorContext = {
-        url: req.originalUrl,
+    const errorLog = {
         method: req.method,
+        url: req.originalUrl,
         ip: req.ip,
         userAgent: req.get('User-Agent'),
-        user: req.user?.employee_code || 'anonymous',
-        body: req.method !== 'GET' ? req.body : undefined,
-        params: req.params,
-        query: req.query
+        timestamp: new Date().toISOString(),
+        error: {
+            name: err.name,
+            message: err.message,
+            stack: err.stack,
+            statusCode: err.statusCode
+        }
     };
 
     // Log based on error severity
     if (err.statusCode >= 500) {
-        errorLogger.error('Server Error', {
-            message: err.message,
-            stack: err.stack,
-            statusCode: err.statusCode,
-            ...errorContext
-        });
+        logger.error('Server Error:', errorLog);
+    } else if (err.statusCode >= 400) {
+        logger.warn('Client Error:', errorLog);
     } else {
-        errorLogger.warn('Client Error', {
-            message: err.message,
-            statusCode: err.statusCode,
-            ...errorContext
+        logger.info('Error handled:', errorLog);
+    }
+
+    // TypeORM/Database errors
+    if (err.name === 'QueryFailedError') {
+        const message = 'Database query failed';
+        error = new DatabaseError(message, {
+            query: err.query,
+            parameters: err.parameters
         });
     }
 
-    // Handle different types of errors
-    if (err.name === 'CastError') {
-        const message = 'Resource not found';
-        error = new AppError(message, 404);
+    // TypeORM Entity not found
+    if (err.name === 'EntityNotFound') {
+        error = new NotFoundError('Requested resource not found');
     }
 
-    if (err.code === 11000) {
-        const message = 'Duplicate field value entered';
-        error = new AppError(message, 400);
-    }
-
+    // Validation errors
     if (err.name === 'ValidationError') {
-        const message = Object.values(err.errors).map(val => val.message);
-        error = new AppError(message, 400);
+        const message = Object.values(err.errors).map(val => val.message).join(', ');
+        error = new ValidationError(message, err.errors);
     }
 
+    // JWT errors
     if (err.name === 'JsonWebTokenError') {
-        const message = 'Invalid token. Please log in again';
-        error = new AppError(message, 401);
+        error = new AuthenticationError('Invalid token');
     }
 
     if (err.name === 'TokenExpiredError') {
-        const message = 'Token expired. Please log in again';
-        error = new AppError(message, 401);
-    }
-
-    // TypeORM specific errors
-    if (err.name === 'QueryFailedError') {
-        if (err.code === '23505') { // Unique constraint violation
-            const message = 'Duplicate entry found';
-            error = new AppError(message, 400);
-        } else if (err.code === '23503') { // Foreign key constraint violation
-            const message = 'Referenced resource not found';
-            error = new AppError(message, 400);
-        } else {
-            const message = 'Database operation failed';
-            error = new AppError(message, 500);
-        }
+        error = new AuthenticationError('Token expired');
     }
 
     // Multer errors
     if (err.code === 'LIMIT_FILE_SIZE') {
-        const message = 'File too large';
-        error = new AppError(message, 400);
+        error = new ValidationError('File too large');
     }
 
     if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-        const message = 'Too many files uploaded';
-        error = new AppError(message, 400);
+        error = new ValidationError('Too many files or unexpected field');
     }
 
-    // Default error response
-    const statusCode = error.statusCode || 500;
-    const message = error.message || 'Internal Server Error';
+    // PostgreSQL specific errors
+    if (err.code === '23505') { // Unique constraint violation
+        error = new ValidationError('Duplicate entry detected');
+    }
 
-    // Don't leak error details in production
-    const errorResponse = {
+    if (err.code === '23503') { // Foreign key constraint violation
+        error = new ValidationError('Referenced record does not exist');
+    }
+
+    if (err.code === '23502') { // Not null constraint violation
+        error = new ValidationError('Required field is missing');
+    }
+
+    // Security errors
+    if (err.message && err.message.includes('[SECURITY]')) {
+        error = new ValidationError('Security policy violation', {
+            reason: err.message
+        });
+    }
+
+    // Default to 500 server error
+    if (!error.statusCode) {
+        error = new AppError('Internal Server Error', 500, 'INTERNAL_ERROR');
+    }
+
+    // Prepare response
+    const response = {
         success: false,
-        message: message,
-        ...(process.env.NODE_ENV === 'development' && {
-            error: err,
-            stack: err.stack
-        })
+        error: {
+            message: error.message,
+            code: error.errorCode || 'UNKNOWN_ERROR',
+            timestamp: error.timestamp || new Date().toISOString()
+        }
     };
 
-    res.status(statusCode).json(errorResponse);
+    // Add details in development mode
+    if (process.env.NODE_ENV === 'development') {
+        response.error.details = error.details;
+        response.error.stack = error.stack;
+    }
+
+    // Add error details for validation errors
+    if (error instanceof ValidationError && error.details) {
+        response.error.validation = error.details;
+    }
+
+    res.status(error.statusCode).json(response);
 };
 
-// Async wrapper to catch errors in async route handlers
+/**
+ * Async error wrapper
+ */
 const asyncHandler = (fn) => (req, res, next) => {
     Promise.resolve(fn(req, res, next)).catch(next);
 };
 
-// 404 handler for undefined routes
+/**
+ * 404 Not Found handler
+ */
 const notFoundHandler = (req, res, next) => {
-    const message = `Route ${req.originalUrl} not found`;
-    errorLogger.warn('Route not found', {
-        url: req.originalUrl,
-        method: req.method,
-        ip: req.ip
-    });
-    
-    const error = new AppError(message, 404);
+    const error = new NotFoundError(`Route ${req.originalUrl} not found`);
     next(error);
+};
+
+/**
+ * Unhandled rejection handler
+ */
+const handleUnhandledRejection = () => {
+    process.on('unhandledRejection', (err, promise) => {
+        logger.error('Unhandled Promise Rejection:', {
+            error: err.message,
+            stack: err.stack,
+            promise: promise
+        });
+
+        // Close server gracefully
+        process.exit(1);
+    });
+};
+
+/**
+ * Uncaught exception handler
+ */
+const handleUncaughtException = () => {
+    process.on('uncaughtException', (err) => {
+        logger.error('Uncaught Exception:', {
+            error: err.message,
+            stack: err.stack
+        });
+
+        // Close server gracefully
+        process.exit(1);
+    });
 };
 
 module.exports = {
     AppError,
+    ValidationError,
+    AuthenticationError,
+    AuthorizationError,
+    NotFoundError,
+    DatabaseError,
+    FileOperationError,
     errorHandler,
     asyncHandler,
-    notFoundHandler
+    notFoundHandler,
+    handleUnhandledRejection,
+    handleUncaughtException
 };

@@ -6,7 +6,16 @@ const passport = require("passport");
 const bcrypt = require("bcrypt");
 const apiRoutes = require("./api");
 const AppDataSource = require("./config/dataSource");
-const { User } = require("./models/User");
+const {
+    errorHandler,
+    notFoundHandler,
+    handleUnhandledRejection,
+    handleUncaughtException
+} = require("./middleware/errorHandler");
+
+// Initialize global error handlers
+handleUnhandledRejection();
+handleUncaughtException();
 
 // Khởi tạo server
 const app = express();
@@ -119,6 +128,23 @@ app.use((req, res, next) => {
 app.use(passport.initialize());
 require("./config/passport")(passport);
 
+// Routes
+app.use("/api", apiRoutes);
+
+// Route gốc để health check
+app.get("/", (req, res) => {
+    res.json({
+        success: true,
+        message: "Welcome to Debt Collection API with Express.js!",
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development'
+    });
+});
+
+// Error handling middleware (must be after all routes)
+app.use(notFoundHandler);
+app.use(errorHandler);
+
 // Kết nối CSDL và khởi động server
 AppDataSource.initialize()
     .then(async () => {
@@ -146,14 +172,6 @@ AppDataSource.initialize()
             console.log("✅ Tạo Administrator thành công!");
         }
 
-        // Routes
-        app.use("/api", apiRoutes);
-
-        // Route gốc để health check
-        app.get("/", (req, res) => {
-            res.send("Welcome to Debt Collection API with Express.js!");
-        });
-
         app.listen(PORT, '0.0.0.0', () => {
             console.log(`🚀 Server đang chạy tại:`);
             console.log(`   - Localhost: http://localhost:${PORT}`);
@@ -161,4 +179,7 @@ AppDataSource.initialize()
             console.log(`   - API Health: http://localhost:${PORT}/api`);
         });
     })
-    .catch((error) => console.log("❌ Lỗi kết nối cơ sở dữ liệu: ", error));
+    .catch((error) => {
+        console.log("❌ Lỗi kết nối cơ sở dữ liệu: ", error);
+        process.exit(1);
+    });

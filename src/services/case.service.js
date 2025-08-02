@@ -4,422 +4,555 @@ const { Not } = require("typeorm");
 const fs = require('fs');
 const path = require('path');
 const { getRelativeFilePath, getAbsoluteFilePath } = require('../utils/filePathHelper');
+const logger = require('../config/logger');
 
 /**
  * Xử lý import hồ sơ nợ từ file Excel, tổng hợp dư nợ theo mã khách hàng
  * @param {Buffer} fileBuffer - Nội dung file Excel từ multer
  */
 exports.importCasesFromExcel = async (fileBuffer) => {
-    const caseRepository = AppDataSource.getRepository("DebtCase");
+    let workbook = null;
+    let data = [];
 
-    // 1. Đọc dữ liệu từ file Excel
-    const workbook = xlsx.read(fileBuffer);
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    const data = xlsx.utils.sheet_to_json(worksheet);
-
-    const allowedDebtGroups = [3, 4, 5];
-    const customerDebtMap = new Map();
-
-    // 2. Lọc và tổng hợp dữ liệu vào Map
-    for (const row of data) {
-        const debtGroupString = row.AQCCDFIN;
-        // **THAY ĐỔI Ở ĐÂY: Logic trích xuất số từ chuỗi**
-        let debtGroupNumber = 0;
-        if (typeof debtGroupString === "string") {
-            const match = debtGroupString.match(/\d+/); // Tìm một hoặc nhiều chữ số
-            if (match) {
-                debtGroupNumber = parseInt(match[0], 10);
-            }
-        } else if (typeof debtGroupString === "number") {
-            debtGroupNumber = debtGroupString;
+    try {
+        if (!fileBuffer || fileBuffer.length === 0) {
+            throw new Error('File buffer is empty or invalid');
         }
 
-        // Lọc theo nhóm nợ đã được trích xuất
-        if (!allowedDebtGroups.includes(debtGroupNumber)) {
-            continue;
-        }
+        const caseRepository = AppDataSource.getRepository("DebtCase");
 
-        const customerCode = row.brcd;
-        const outstandingDebt = Number(row.dsbsbal) || 0;
-        const employeeCode = row.ofcno; // **THAY ĐỔI Ở ĐÂY: Dùng cột 'ofcno'**
-        const customerName = row.custnm;
-
-        if (!customerCode) {
-            continue;
-        }
-
-        if (customerDebtMap.has(customerCode)) {
-            const currentData = customerDebtMap.get(customerCode);
-            currentData.outstanding_debt += outstandingDebt;
-            // Cập nhật CBTD nếu cần, hoặc giữ người đầu tiên tìm thấy
-            customerDebtMap.set(customerCode, currentData);
-        } else {
-            customerDebtMap.set(customerCode, {
-                customer_code: customerCode,
-                customer_name: customerName,
-                outstanding_debt: outstandingDebt,
-                assigned_employee_code: employeeCode,
-                case_type: "internal",
-            });
-        }
-    }
-
-    // 3. Chuyển Map thành mảng để xử lý
-    const aggregatedData = Array.from(customerDebtMap.values());
-
-    let createdCount = 0;
-    let updatedCount = 0;
-    const errors = [];
-
-    // 4. Lặp qua dữ liệu đã tổng hợp và cập nhật CSDL
-    for (const customer of aggregatedData) {
+        // 1. Đọc dữ liệu từ file Excel with error handling
         try {
-            if (
-                !customer.customer_code ||
-                !customer.customer_name ||
-                !customer.assigned_employee_code
-            ) {
-                errors.push(
-                    `Khách hàng với mã ${customer.customer_code} bị thiếu thông tin Tên hoặc CBTD.`
-                );
+            workbook = xlsx.read(fileBuffer);
+        } catch (error) {
+            logger.error('Failed to parse Excel file:', error);
+            throw new Error('Invalid Excel file format');
+        }
+
+        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+            throw new Error('Excel file contains no sheets');
+        }
+
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+
+        if (!worksheet) {
+            throw new Error('First sheet is empty or corrupted');
+        }
+
+        try {
+            data = xlsx.utils.sheet_to_json(worksheet);
+        } catch (error) {
+            logger.error('Failed to convert sheet to JSON:', error);
+            throw new Error('Failed to read Excel data');
+        }
+
+        if (!Array.isArray(data) || data.length === 0) {
+            throw new Error('Excel file contains no data rows');
+        }
+
+        const allowedDebtGroups = [3, 4, 5];
+        const customerDebtMap = new Map();
+
+        // 2. Lọc và tổng hợp dữ liệu vào Map with error handling
+        for (let i = 0; i < data.length; i++) {
+            try {
+                const row = data[i];
+                const debtGroupString = row.AQCCDFIN;
+
+                // **THAY ĐỔI Ở ĐÂY: Logic trích xuất số từ chuỗi**
+                let debtGroupNumber = 0;
+                if (typeof debtGroupString === "string") {
+                    const match = debtGroupString.match(/\d+/); // Tìm một hoặc nhiều chữ số
+                    if (match) {
+                        debtGroupNumber = parseInt(match[0], 10);
+                    }
+                } else if (typeof debtGroupString === "number") {
+                    debtGroupNumber = debtGroupString;
+                }
+
+                // Lọc theo nhóm nợ đã được trích xuất
+                if (!allowedDebtGroups.includes(debtGroupNumber)) {
+                    continue;
+                }
+
+                const customerCode = row.brcd;
+                const outstandingDebt = Number(row.dsbsbal) || 0;
+                const employeeCode = row.ofcno; // **THAY ĐỔI Ở ĐÂY: Dùng cột 'ofcno'**
+                const customerName = row.custnm;
+
+                if (!customerCode) {
+                    logger.warn(`Row ${i + 1}: Missing customer code, skipping`);
+                    continue;
+                }
+
+                if (customerDebtMap.has(customerCode)) {
+                    const currentData = customerDebtMap.get(customerCode);
+                    currentData.outstanding_debt += outstandingDebt;
+                    // Cập nhật CBTD nếu cần, hoặc giữ người đầu tiên tìm thấy
+                    customerDebtMap.set(customerCode, currentData);
+                } else {
+                    customerDebtMap.set(customerCode, {
+                        customer_code: customerCode,
+                        customer_name: customerName,
+                        outstanding_debt: outstandingDebt,
+                        assigned_employee_code: employeeCode,
+                        case_type: "internal",
+                    });
+                }
+            } catch (rowError) {
+                logger.warn(`Error processing row ${i + 1}:`, rowError.message);
+                // Continue processing other rows
                 continue;
             }
-
-            let existingCase = await caseRepository.findOneBy({
-                customer_code: customer.customer_code,
-                case_type: "internal", // **THAY ĐỔI Ở ĐÂY**
-            });
-
-            if (existingCase) {
-                existingCase.outstanding_debt = customer.outstanding_debt;
-                existingCase.assigned_employee_code =
-                    customer.assigned_employee_code;
-                await caseRepository.save(existingCase);
-                updatedCount++;
-            } else {
-                const newCase = caseRepository.create(customer);
-                await caseRepository.save(newCase);
-                createdCount++;
-            }
-        } catch (error) {
-            errors.push(
-                `Lỗi xử lý khách hàng ${customer.customer_code}: ${error.message}`
-            );
         }
-    }
 
-    // 5. Trả về kết quả
-    return {
-        totalRowsInFile: data.length,
-        processedCustomers: aggregatedData.length,
-        created: createdCount,
-        updated: updatedCount,
-        errors: errors,
-    };
+        // 3. Chuyển Map thành mảng để xử lý
+        const aggregatedData = Array.from(customerDebtMap.values());
+
+        let createdCount = 0;
+        let updatedCount = 0;
+        const errors = [];
+
+        // 4. Lặp qua dữ liệu đã tổng hợp và cập nhật CSDL
+        for (let i = 0; i < aggregatedData.length; i++) {
+            const customer = aggregatedData[i];
+            try {
+                if (
+                    !customer.customer_code ||
+                    !customer.customer_name ||
+                    !customer.assigned_employee_code
+                ) {
+                    const errorMsg = `Khách hàng với mã ${customer.customer_code} bị thiếu thông tin Tên hoặc CBTD.`;
+                    errors.push(errorMsg);
+                    logger.warn(errorMsg);
+                    continue;
+                }
+
+                let existingCase = await caseRepository.findOneBy({
+                    customer_code: customer.customer_code,
+                    case_type: "internal", // **THAY ĐỔI Ở ĐÂY**
+                });
+
+                if (existingCase) {
+                    existingCase.outstanding_debt = customer.outstanding_debt;
+                    existingCase.assigned_employee_code =
+                        customer.assigned_employee_code;
+                    await caseRepository.save(existingCase);
+                    updatedCount++;
+                } else {
+                    const newCase = caseRepository.create(customer);
+                    await caseRepository.save(newCase);
+                    createdCount++;
+                }
+            } catch (error) {
+                const errorMsg = `Lỗi xử lý khách hàng ${customer.customer_code}: ${error.message}`;
+                errors.push(errorMsg);
+                logger.error(`Database error for customer ${customer.customer_code}:`, error);
+            }
+        }
+
+        // 5. Trả về kết quả
+        const result = {
+            totalRowsInFile: data.length,
+            processedCustomers: aggregatedData.length,
+            created: createdCount,
+            updated: updatedCount,
+            errors: errors,
+        };
+
+        logger.info('Excel import completed:', result);
+        return result;
+
+    } catch (error) {
+        logger.error('Fatal error in importCasesFromExcel:', error);
+        throw error;
+    }
 };
 
 /**
  * MỚI: Tìm tất cả hồ sơ được phân công cho một nhân viên cụ thể
  */
 exports.findCasesByEmployeeCode = async (employeeCode) => {
-    const caseRepository = AppDataSource.getRepository("DebtCase");
-    const cases = await caseRepository.find({
-        where: {
-            assigned_employee_code: employeeCode,
-        },
-        order: {
-            last_modified_date: "DESC", // Sắp xếp theo ngày cập nhật mới nhất
-        },
-    });
-    return cases;
+    try {
+        if (!employeeCode) {
+            throw new Error('Employee code is required');
+        }
+
+        const caseRepository = AppDataSource.getRepository("DebtCase");
+        const cases = await caseRepository.find({
+            where: {
+                assigned_employee_code: employeeCode,
+            },
+            order: {
+                last_modified_date: "DESC", // Sắp xếp theo ngày cập nhật mới nhất
+            },
+        });
+
+        logger.info(`Found ${cases.length} cases for employee ${employeeCode}`);
+        return cases;
+    } catch (error) {
+        logger.error(`Error finding cases for employee ${employeeCode}:`, error);
+        throw error;
+    }
 };
 
 /**
  * NEW: Tìm hồ sơ của nhân viên với phân trang và bộ lọc (giống như findDepartmentCases)
  */
 exports.findMyCases = async (employeeCode, page = 1, filters = {}, limit = 20, sorting = {}) => {
-    const caseRepository = AppDataSource.getRepository("DebtCase");
-    const offset = (page - 1) * limit;
-
-    // Tạo query builder với join officer
-    let queryBuilder = caseRepository
-        .createQueryBuilder("debt_cases")
-        .leftJoinAndSelect("debt_cases.officer", "officer");
-
-    // Bộ lọc cơ bản: chỉ hiển thị cases được gán cho nhân viên này
-    queryBuilder = queryBuilder.andWhere("debt_cases.assigned_employee_code = :employeeCode", { employeeCode });
-
-    // Áp dụng bộ lọc tìm kiếm
-    if (filters.search) {
-        queryBuilder = queryBuilder.andWhere(
-            "(debt_cases.customer_name ILIKE :search OR debt_cases.case_id ILIKE :search OR debt_cases.customer_code ILIKE :search)",
-            { search: `%${filters.search}%` }
-        );
-    }
-
-    if (filters.type) {
-        queryBuilder = queryBuilder.andWhere("debt_cases.case_type = :type", { type: filters.type });
-    }
-
-    if (filters.status) {
-        queryBuilder = queryBuilder.andWhere("debt_cases.state = :status", { status: filters.status });
-    }
-
-    // Áp dụng sorting
-    if (sorting.sortBy && sorting.sortOrder) {
-        let orderByField;
-        let orderDirection = sorting.sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-        
-        switch (sorting.sortBy) {
-            case 'case_id':
-                orderByField = 'debt_cases.case_id';
-                break;
-            case 'customer_code':
-                orderByField = 'debt_cases.customer_code';
-                break;
-            case 'customer_name':
-                orderByField = 'debt_cases.customer_name';
-                break;
-            case 'outstanding_debt':
-                orderByField = 'debt_cases.outstanding_debt';
-                break;
-            case 'case_type':
-                orderByField = 'debt_cases.case_type';
-                break;
-            case 'state':
-                orderByField = 'debt_cases.state';
-                break;
-            case 'last_modified_date':
-                orderByField = 'debt_cases.last_modified_date';
-                break;
-            default:
-                orderByField = 'debt_cases.last_modified_date';
-                orderDirection = 'DESC';
+    try {
+        if (!employeeCode) {
+            throw new Error('Employee code is required');
         }
-        
-        queryBuilder = queryBuilder.orderBy(orderByField, orderDirection);
-    } else {
-        // Mặc định sắp xếp theo ngày cập nhật mới nhất
-        queryBuilder = queryBuilder.orderBy('debt_cases.last_modified_date', 'DESC');
-    }
 
-    // Lấy tổng số và áp dụng phân trang
-    const [cases, totalCases] = await queryBuilder
-        .offset(offset)
-        .limit(limit)
-        .getManyAndCount();
+        if (page < 1) {
+            throw new Error('Page must be greater than 0');
+        }
 
-    const totalPages = Math.ceil(totalCases / limit);
+        if (limit < 1 || limit > 1000) {
+            throw new Error('Limit must be between 1 and 1000');
+        }
 
-    return {
-        success: true,
-        data: {
+        const caseRepository = AppDataSource.getRepository("DebtCase");
+        const offset = (page - 1) * limit;
+
+        // Tạo query builder với join officer
+        let queryBuilder = caseRepository
+            .createQueryBuilder("debt_cases")
+            .leftJoinAndSelect("debt_cases.officer", "officer");
+
+        // Bộ lọc cơ bản: chỉ hiển thị cases được gán cho nhân viên này
+        queryBuilder = queryBuilder.andWhere("debt_cases.assigned_employee_code = :employeeCode", { employeeCode });
+
+        // Áp dụng bộ lọc tìm kiếm with sanitization
+        if (filters.search && typeof filters.search === 'string') {
+            const sanitizedSearch = filters.search.trim().substring(0, 100); // Limit search length
+            queryBuilder = queryBuilder.andWhere(
+                "(debt_cases.customer_name ILIKE :search OR debt_cases.case_id ILIKE :search OR debt_cases.customer_code ILIKE :search)",
+                { search: `%${sanitizedSearch}%` }
+            );
+        }
+
+        if (filters.type && typeof filters.type === 'string') {
+            queryBuilder = queryBuilder.andWhere("debt_cases.case_type = :type", { type: filters.type });
+        }
+
+        if (filters.status && typeof filters.status === 'string') {
+            queryBuilder = queryBuilder.andWhere("debt_cases.state = :status", { status: filters.status });
+        }
+
+        // Áp dụng sorting with validation
+        if (sorting.sortBy && sorting.sortOrder) {
+            let orderByField;
+            let orderDirection = sorting.sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+
+            switch (sorting.sortBy) {
+                case 'case_id':
+                    orderByField = 'debt_cases.case_id';
+                    break;
+                case 'customer_code':
+                    orderByField = 'debt_cases.customer_code';
+                    break;
+                case 'customer_name':
+                    orderByField = 'debt_cases.customer_name';
+                    break;
+                case 'outstanding_debt':
+                    orderByField = 'debt_cases.outstanding_debt';
+                    break;
+                case 'case_type':
+                    orderByField = 'debt_cases.case_type';
+                    break;
+                case 'state':
+                    orderByField = 'debt_cases.state';
+                    break;
+                case 'last_modified_date':
+                    orderByField = 'debt_cases.last_modified_date';
+                    break;
+                default:
+                    orderByField = 'debt_cases.last_modified_date';
+                    orderDirection = 'DESC';
+            }
+
+            queryBuilder = queryBuilder.orderBy(orderByField, orderDirection);
+        } else {
+            // Default sorting
+            queryBuilder = queryBuilder.orderBy('debt_cases.last_modified_date', 'DESC');
+        }
+
+        // Execute query with error handling
+        let cases, totalCount;
+        try {
+            [cases, totalCount] = await Promise.all([
+                queryBuilder.skip(offset).take(limit).getMany(),
+                queryBuilder.getCount()
+            ]);
+        } catch (dbError) {
+            logger.error('Database query error in findMyCases:', dbError);
+            throw new Error('Failed to retrieve cases from database');
+        }
+
+        const result = {
             cases,
-            totalCases,
-            totalPages,
-            currentPage: parseInt(page),
-            itemsPerPage: parseInt(limit)
-        }
-    };
+            total: totalCount,
+            page: parseInt(page),
+            limit: parseInt(limit),
+            totalPages: Math.ceil(totalCount / limit)
+        };
+
+        logger.info(`Found ${cases.length} cases for employee ${employeeCode} (page ${page})`);
+        return result;
+
+    } catch (error) {
+        logger.error(`Error in findMyCases for employee ${employeeCode}:`, error);
+        throw error;
+    }
 };
 
 /**
  * MỚI: Tìm tất cả hồ sơ với phân trang và bộ lọc (dành cho Ban Giám Đốc)
  */
-exports.findAllCases = async (page = 1, filters = {}, limit = 20, sorting = {}) => {
-    const caseRepository = AppDataSource.getRepository("DebtCase");
-    const offset = (page - 1) * limit;
-
-    // Tạo query builder
-    let queryBuilder = caseRepository
-        .createQueryBuilder("debt_cases")
-        .leftJoinAndSelect("debt_cases.officer", "officer");
-
-    // Áp dụng bộ lọc
-    if (filters.search) {
-        queryBuilder = queryBuilder.andWhere(
-            "(debt_cases.customer_name ILIKE :search OR debt_cases.customer_code ILIKE :search)",
-            { search: `%${filters.search}%` }
-        );
-    }
-
-    if (filters.type) {
-        queryBuilder = queryBuilder.andWhere("debt_cases.case_type = :type", { type: filters.type });
-    }
-
-    if (filters.status) {
-        queryBuilder = queryBuilder.andWhere("debt_cases.state = :status", { status: filters.status });
-    }
-
-    // Branch-based filtering: BGĐ thuộc chi nhánh khác không phải 6421 chỉ xem cases thuộc branch đó
-    if (filters.branch_code) {
-        queryBuilder = queryBuilder.andWhere("officer.branch_code = :branch_code", { branch_code: filters.branch_code });
-    }
-
-    // Employee-based filtering: Filter by specific employee
-    if (filters.employee_code) {
-        queryBuilder = queryBuilder.andWhere("officer.employee_code = :employee_code", { employee_code: filters.employee_code });
-    }
-
-    // Áp dụng sorting
-    if (sorting.sortBy && sorting.sortOrder) {
-        let orderByField;
-        let orderDirection = sorting.sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-        
-        // Map frontend field names to database column names
-        switch (sorting.sortBy) {
-            case 'customer_code':
-                orderByField = 'debt_cases.customer_code';
-                break;
-            case 'customer_name':
-                orderByField = 'debt_cases.customer_name';
-                break;
-            case 'outstanding_debt':
-                orderByField = 'debt_cases.outstanding_debt';
-                break;
-            case 'case_type':
-                orderByField = 'debt_cases.case_type';
-                break;
-            case 'state':
-                orderByField = 'debt_cases.state';
-                break;
-            case 'created_date':
-                orderByField = 'debt_cases.created_date';
-                break;
-            case 'officer':
-                orderByField = 'officer.fullname';
-                break;
-            default:
-                orderByField = 'debt_cases.last_modified_date';
-                orderDirection = 'DESC';
+exports.findAllCases = async (page = 1, filters = {}, limit = 20, sorting = {}, directorBranchCode = null) => {
+    try {
+        // Input validation
+        if (page < 1) {
+            throw new Error('Page must be greater than 0');
         }
-        
-        queryBuilder = queryBuilder.orderBy(orderByField, orderDirection);
-    } else {
-        // Default sorting
-        queryBuilder = queryBuilder.orderBy("debt_cases.last_modified_date", "DESC");
-    }
 
-    // Đếm tổng số record
-    const totalCases = await queryBuilder.getCount();
-    const totalPages = Math.ceil(totalCases / limit);
-
-    // Lấy dữ liệu với phân trang
-    const cases = await queryBuilder
-        .skip(offset)
-        .take(limit)
-        .getMany();
-
-    return {
-        success: true,
-        data: {
-            cases,
-            currentPage: parseInt(page),
-            totalPages,
-            totalCases,
-            limit
+        if (limit < 1 || limit > 1000) {
+            throw new Error('Limit must be between 1 and 1000');
         }
-    };
+
+        const caseRepository = AppDataSource.getRepository("DebtCase");
+
+        // Tạo query builder
+        const queryBuilder = caseRepository
+            .createQueryBuilder("debt_cases")
+            .leftJoinAndSelect("debt_cases.officer", "officer");
+
+        // Director-level branch filtering logic
+        if (directorBranchCode && directorBranchCode !== '6421') {
+            // For directors not from branch '6421', filter cases by customer_code prefix
+            queryBuilder.andWhere(
+                "LEFT(debt_cases.customer_code, 4) = :directorBranchCode",
+                { directorBranchCode }
+            );
+            logger.info(`Applied branch filtering for director: ${directorBranchCode}`);
+        } else if (directorBranchCode === '6421') {
+            // Branch '6421' directors can see all cases - no additional filtering
+            logger.info('Director from branch 6421 - showing all cases');
+        }
+
+        // Apply additional filters with validation
+        if (filters.search && typeof filters.search === 'string') {
+            const sanitizedSearch = filters.search.trim().substring(0, 100);
+            queryBuilder.andWhere(
+                "(debt_cases.customer_name ILIKE :search OR debt_cases.customer_code ILIKE :search)",
+                { search: `%${sanitizedSearch}%` }
+            );
+        }
+
+        if (filters.type && typeof filters.type === 'string') {
+            queryBuilder.andWhere("debt_cases.case_type = :type", { type: filters.type });
+        }
+
+        if (filters.status && typeof filters.status === 'string') {
+            queryBuilder.andWhere("debt_cases.state = :status", { status: filters.status });
+        }
+
+        if (filters.branch_code && typeof filters.branch_code === 'string') {
+            queryBuilder.andWhere("officer.branch_code = :branch_code", { branch_code: filters.branch_code });
+        }
+
+        if (filters.employee_code && typeof filters.employee_code === 'string') {
+            queryBuilder.andWhere("officer.employee_code = :employee_code", { employee_code: filters.employee_code });
+        }
+
+        // Apply sorting with validation
+        if (sorting.sortBy && sorting.sortOrder) {
+            const orderDirection = sorting.sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+            const sortMap = {
+                'customer_code': 'debt_cases.customer_code',
+                'customer_name': 'debt_cases.customer_name',
+                'outstanding_debt': 'debt_cases.outstanding_debt',
+                'case_type': 'debt_cases.case_type',
+                'state': 'debt_cases.state',
+                'created_date': 'debt_cases.created_date',
+                'officer': 'officer.fullname',
+            };
+
+            const orderByField = sortMap[sorting.sortBy] || 'debt_cases.last_modified_date';
+            queryBuilder.orderBy(orderByField, orderDirection);
+        } else {
+            // Default sorting
+            queryBuilder.orderBy("debt_cases.last_modified_date", "DESC");
+        }
+
+        // Execute queries with error handling
+        const offset = (page - 1) * limit;
+        let cases, totalCases;
+
+        try {
+            [cases, totalCases] = await Promise.all([
+                queryBuilder.skip(offset).take(limit).getMany(),
+                queryBuilder.getCount()
+            ]);
+        } catch (dbError) {
+            logger.error('Database query error in findAllCases:', dbError);
+            throw new Error('Failed to retrieve cases from database');
+        }
+
+        const totalPages = Math.ceil(totalCases / limit);
+
+        const result = {
+            success: true,
+            data: {
+                cases,
+                currentPage: parseInt(page, 10),
+                totalPages,
+                totalCases,
+                limit: parseInt(limit, 10)
+            }
+        };
+
+        logger.info(`Found ${cases.length} cases for director (branch: ${directorBranchCode || 'unknown'}, page ${page})`);
+        return result;
+
+    } catch (error) {
+        logger.error('Error in findAllCases:', error);
+        throw error;
+    }
 };
 
-/**
- * Lấy danh sách hồ sơ theo phòng ban cho Manager/Deputy Manager
- * Hiển thị cases được quản lý bởi CBTD có cùng phòng ban và cùng branch_code
- */
 exports.findDepartmentCases = async (page = 1, filters = {}, limit = 20, sorting = {}) => {
-    const caseRepository = AppDataSource.getRepository("DebtCase");
-    const offset = (page - 1) * limit;
+    try {
+        // Input validation
+        if (page < 1) {
+            throw new Error('Page must be greater than 0');
+        }
 
-    // Tạo query builder với join officer
-    let queryBuilder = caseRepository
-        .createQueryBuilder("debt_cases")
-        .leftJoinAndSelect("debt_cases.officer", "officer");
+        if (limit < 1 || limit > 1000) {
+            throw new Error('Limit must be between 1 and 1000');
+        }
 
-    // Áp dụng bộ lọc cơ bản
-    if (filters.search) {
+        // Validate required department and branch filters
+        if (!filters.department || typeof filters.department !== 'string') {
+            throw new Error('Department filter is required and must be a string');
+        }
+
+        if (!filters.branch_code || typeof filters.branch_code !== 'string') {
+            throw new Error('Branch code filter is required and must be a string');
+        }
+
+        const caseRepository = AppDataSource.getRepository("DebtCase");
+        const offset = (page - 1) * limit;
+
+        // Tạo query builder với join officer
+        let queryBuilder = caseRepository
+            .createQueryBuilder("debt_cases")
+            .leftJoinAndSelect("debt_cases.officer", "officer");
+
+        // CORE REQUIREMENT: Apply BOTH department AND branch filters together (AND logic)
         queryBuilder = queryBuilder.andWhere(
-            "(debt_cases.customer_name ILIKE :search OR debt_cases.customer_code ILIKE :search)",
-            { search: `%${filters.search}%` }
-        );
-    }
-
-    if (filters.type) {
-        queryBuilder = queryBuilder.andWhere("debt_cases.case_type = :type", { type: filters.type });
-    }
-
-    if (filters.status) {
-        queryBuilder = queryBuilder.andWhere("debt_cases.state = :status", { status: filters.status });
-    }
-
-    // Department-based filtering: Chỉ hiển thị cases được quản lý bởi CBTD có cùng phòng ban và branch_code
-    if (filters.department && filters.branch_code) {
-        queryBuilder = queryBuilder.andWhere(
-            "officer.dept = :department AND officer.branch_code = :branch_code", 
-            { 
+            "officer.dept = :department AND officer.branch_code = :branch_code",
+            {
                 department: filters.department,
-                branch_code: filters.branch_code 
+                branch_code: filters.branch_code
             }
         );
-    }
 
-    // Áp dụng sorting (tương tự như findAllCases)
-    if (sorting.sortBy && sorting.sortOrder) {
-        let orderByField;
-        let orderDirection = sorting.sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-        
-        switch (sorting.sortBy) {
-            case 'customer_code':
-                orderByField = 'debt_cases.customer_code';
-                break;
-            case 'customer_name':
-                orderByField = 'debt_cases.customer_name';
-                break;
-            case 'outstanding_debt':
-                orderByField = 'debt_cases.outstanding_debt';
-                break;
-            case 'case_type':
-                orderByField = 'debt_cases.case_type';
-                break;
-            case 'state':
-                orderByField = 'debt_cases.state';
-                break;
-            case 'created_date':
-                orderByField = 'debt_cases.created_date';
-                break;
-            case 'officer':
-                orderByField = 'officer.fullname';
-                break;
-            default:
-                orderByField = 'debt_cases.last_modified_date';
-                orderDirection = 'DESC';
+        // Apply additional optional filters
+        if (filters.search && typeof filters.search === 'string') {
+            const sanitizedSearch = filters.search.trim().substring(0, 100);
+            queryBuilder = queryBuilder.andWhere(
+                "(debt_cases.customer_name ILIKE :search OR debt_cases.customer_code ILIKE :search)",
+                { search: `%${sanitizedSearch}%` }
+            );
         }
-        
-        queryBuilder = queryBuilder.orderBy(orderByField, orderDirection);
-    } else {
-        queryBuilder = queryBuilder.orderBy("debt_cases.last_modified_date", "DESC");
-    }
 
-    // Đếm tổng số record
-    const totalCases = await queryBuilder.getCount();
-    const totalPages = Math.ceil(totalCases / limit);
-
-    // Lấy dữ liệu với phân trang
-    const cases = await queryBuilder
-        .skip(offset)
-        .take(limit)
-        .getMany();
-
-    return {
-        success: true,
-        data: {
-            cases,
-            currentPage: parseInt(page),
-            totalPages,
-            totalCases,
-            limit
+        if (filters.type && typeof filters.type === 'string') {
+            queryBuilder = queryBuilder.andWhere("debt_cases.case_type = :type", { type: filters.type });
         }
-    };
+
+        if (filters.status && typeof filters.status === 'string') {
+            queryBuilder = queryBuilder.andWhere("debt_cases.state = :status", { status: filters.status });
+        }
+
+        // Apply specific employee filter if provided (within the same department/branch)
+        if (filters.employee_code && typeof filters.employee_code === 'string') {
+            queryBuilder = queryBuilder.andWhere("officer.employee_code = :employee_code", { employee_code: filters.employee_code });
+        }
+
+        // Apply sorting with validation
+        if (sorting.sortBy && sorting.sortOrder) {
+            let orderByField;
+            let orderDirection = sorting.sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+
+            switch (sorting.sortBy) {
+                case 'customer_code':
+                    orderByField = 'debt_cases.customer_code';
+                    break;
+                case 'customer_name':
+                    orderByField = 'debt_cases.customer_name';
+                    break;
+                case 'outstanding_debt':
+                    orderByField = 'debt_cases.outstanding_debt';
+                    break;
+                case 'case_type':
+                    orderByField = 'debt_cases.case_type';
+                    break;
+                case 'state':
+                    orderByField = 'debt_cases.state';
+                    break;
+                case 'created_date':
+                    orderByField = 'debt_cases.created_date';
+                    break;
+                case 'officer':
+                    orderByField = 'officer.fullname';
+                    break;
+                default:
+                    orderByField = 'debt_cases.last_modified_date';
+                    orderDirection = 'DESC';
+            }
+
+            queryBuilder = queryBuilder.orderBy(orderByField, orderDirection);
+        } else {
+            // Default sorting
+            queryBuilder = queryBuilder.orderBy("debt_cases.last_modified_date", "DESC");
+        }
+
+        // Execute queries with error handling
+        let totalCases, cases;
+        try {
+            [cases, totalCases] = await Promise.all([
+                queryBuilder.skip(offset).take(limit).getMany(),
+                queryBuilder.getCount()
+            ]);
+        } catch (dbError) {
+            logger.error('Database query error in findDepartmentCases:', dbError);
+            throw new Error('Failed to retrieve department cases from database');
+        }
+
+        const totalPages = Math.ceil(totalCases / limit);
+
+        const result = {
+            success: true,
+            data: {
+                cases,
+                currentPage: parseInt(page),
+                totalPages,
+                totalCases,
+                limit
+            }
+        };
+
+        logger.info(`Found ${cases.length} department cases for dept: ${filters.department}, branch: ${filters.branch_code} (page ${page})`);
+        return result;
+
+    } catch (error) {
+        logger.error(`Error in findDepartmentCases:`, error);
+        throw error;
+    }
 };
 
 /**
@@ -517,16 +650,6 @@ exports.importExternalCasesFromExcel = async (fileBuffer) => {
         updated: updatedCount,
         errors: errors,
     };
-};
-
-exports.getAllCases = async () => {
-    const caseRepository = AppDataSource.getRepository("DebtCase");
-    const cases = await caseRepository.find({
-        order: {
-            last_modified_date: "DESC", // Sắp xếp theo ngày cập nhật mới nhất
-        },
-    });
-    return cases;
 };
 
 exports.getCaseById = async (caseId) => {
