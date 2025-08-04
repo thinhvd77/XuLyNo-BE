@@ -15,18 +15,34 @@ exports.importCasesFromExcel = async (fileBuffer) => {
     let data = [];
 
     try {
+        // Validate input buffer
         if (!fileBuffer || fileBuffer.length === 0) {
-            throw new Error('File buffer is empty or invalid');
+            throw new Error('File buffer rỗng hoặc không hợp lệ');
+        }
+
+        // Check if buffer has Excel file signature
+        const excelSignatures = [
+            Buffer.from([0xD0, 0xCF, 0x11, 0xE0]), // .xls signature (OLE2)
+            Buffer.from([0x50, 0x4B, 0x03, 0x04]), // .xlsx signature (ZIP)
+            Buffer.from([0x50, 0x4B, 0x07, 0x08]), // Alternative .xlsx signature
+        ];
+
+        const hasValidSignature = excelSignatures.some(signature => 
+            fileBuffer.subarray(0, signature.length).equals(signature)
+        );
+
+        if (!hasValidSignature) {
+            throw new Error('File không phải là file Excel hợp lệ. Vui lòng kiểm tra lại định dạng file.');
         }
 
         const caseRepository = AppDataSource.getRepository("DebtCase");
 
-        // 1. Đọc dữ liệu từ file Excel with error handling
+        // 1. Đọc dữ liệu từ file Excel with enhanced error handling
         try {
-            workbook = xlsx.read(fileBuffer);
+            workbook = xlsx.read(fileBuffer, { type: 'buffer' });
         } catch (error) {
             logger.error('Failed to parse Excel file:', error);
-            throw new Error('Invalid Excel file format');
+            throw new Error('Không thể đọc file Excel. Vui lòng kiểm tra định dạng file và thử lại.');
         }
 
         if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
@@ -574,16 +590,63 @@ exports.findDepartmentCases = async (page = 1, filters = {}, limit = 20, sorting
  * @param {Buffer} fileBuffer - Nội dung file Excel từ multer
  */
 exports.importExternalCasesFromExcel = async (fileBuffer) => {
-    const caseRepository = AppDataSource.getRepository("DebtCase");
+    try {
+        // Validate input buffer
+        if (!fileBuffer || fileBuffer.length === 0) {
+            throw new Error('File buffer rỗng hoặc không hợp lệ');
+        }
 
-    // 1. Đọc dữ liệu từ file Excel
-    const workbook = xlsx.read(fileBuffer);
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    const data = xlsx.utils.sheet_to_json(worksheet);
+        // Check if buffer has Excel file signature
+        const excelSignatures = [
+            Buffer.from([0xD0, 0xCF, 0x11, 0xE0]), // .xls signature (OLE2)
+            Buffer.from([0x50, 0x4B, 0x03, 0x04]), // .xlsx signature (ZIP)
+            Buffer.from([0x50, 0x4B, 0x07, 0x08]), // Alternative .xlsx signature
+        ];
 
-    // const allowedDebtGroups = [3, 4, 5];
-    const customerDebtMap = new Map();
+        const hasValidSignature = excelSignatures.some(signature => 
+            fileBuffer.subarray(0, signature.length).equals(signature)
+        );
+
+        if (!hasValidSignature) {
+            throw new Error('File không phải là file Excel hợp lệ. Vui lòng kiểm tra lại định dạng file.');
+        }
+
+        const caseRepository = AppDataSource.getRepository("DebtCase");
+
+        // 1. Đọc dữ liệu từ file Excel with enhanced error handling
+        let workbook, sheetName, worksheet, data;
+        
+        try {
+            workbook = xlsx.read(fileBuffer, { type: 'buffer' });
+        } catch (error) {
+            logger.error('Failed to parse external Excel file:', error);
+            throw new Error('Không thể đọc file Excel. Vui lòng kiểm tra định dạng file và thử lại.');
+        }
+
+        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+            throw new Error('File Excel không chứa sheet nào hoặc file bị lỗi.');
+        }
+
+        sheetName = workbook.SheetNames[0];
+        worksheet = workbook.Sheets[sheetName];
+
+        if (!worksheet) {
+            throw new Error('Sheet đầu tiên trong file Excel bị lỗi hoặc rỗng.');
+        }
+
+        try {
+            data = xlsx.utils.sheet_to_json(worksheet);
+        } catch (error) {
+            logger.error('Failed to convert sheet to JSON:', error);
+            throw new Error('Không thể đọc dữ liệu từ file Excel. Vui lòng kiểm tra cấu trúc file.');
+        }
+
+        if (!Array.isArray(data) || data.length === 0) {
+            throw new Error('File Excel không chứa dữ liệu hoặc định dạng không đúng.');
+        }
+
+        // const allowedDebtGroups = [3, 4, 5];
+        const customerDebtMap = new Map();
 
     // 2. Lọc và tổng hợp dữ liệu vào Map
     for (const row of data) {
@@ -654,16 +717,21 @@ exports.importExternalCasesFromExcel = async (fileBuffer) => {
                 `Lỗi xử lý khách hàng ${customer.customer_code}: ${error.message}`
             );
         }
-    }
+        }
 
-    // 5. Trả về kết quả
-    return {
-        totalRowsInFile: data.length,
-        processedCustomers: aggregatedData.length,
-        created: createdCount,
-        updated: updatedCount,
-        errors: errors,
-    };
+        // 5. Trả về kết quả
+        return {
+            totalRowsInFile: data.length,
+            processedCustomers: aggregatedData.length,
+            created: createdCount,
+            updated: updatedCount,
+            errors: errors,
+        };
+
+    } catch (error) {
+        logger.error('Fatal error in importExternalCasesFromExcel:', error);
+        throw error;
+    }
 };
 
 exports.getCaseById = async (caseId) => {

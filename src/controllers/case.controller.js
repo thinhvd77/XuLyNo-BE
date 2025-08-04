@@ -5,6 +5,7 @@ const multer = require("multer");
 const logger = require("../config/logger");
 const { AuthenticationError } = require("../middleware/auth.middleware");
 const { moveFileToFinalDestination, getDocumentTypeFolder } = require("../config/multer.config");
+const { validateExcelFile } = require("../utils/errorUtils");
 const {
     asyncHandler,
     ValidationError,
@@ -21,6 +22,11 @@ exports.importCases = asyncHandler(async (req, res) => {
         throw new ValidationError("Vui lòng tải lên một file Excel.");
     }
 
+    // Validate Excel file using utility function
+    validateExcelFile(req.file);
+
+    logger.info(`Excel import started - Internal cases. File: ${req.file.originalname}, Size: ${req.file.size} bytes, User: ${req.user?.employee_code}`);
+
     const result = await caseService.importCasesFromExcel(req.file.buffer);
 
     res.status(200).json({
@@ -34,6 +40,11 @@ exports.importExternalCases = asyncHandler(async (req, res) => {
     if (!req.file) {
         throw new ValidationError("Vui lòng tải lên một file Excel.");
     }
+
+    // Validate Excel file using utility function
+    validateExcelFile(req.file);
+
+    logger.info(`Excel import started - External cases. File: ${req.file.originalname}, Size: ${req.file.size} bytes, User: ${req.user?.employee_code}`);
 
     const result = await caseService.importExternalCasesFromExcel(req.file.buffer);
 

@@ -177,19 +177,80 @@ exports.changeUserPassword = asyncHandler(async (req, res) => {
     }
 
     const { id } = req.params;
-    const { newPassword } = req.body;
+    const { newPassword } = req.body; // Admin doesn't need oldPassword
+    const currentUser = req.user; // From JWT middleware
 
     try {
-        // 2. Gọi service để đổi mật khẩu
-        const updatedUser = await userService.changeUserPassword(id, newPassword);
+        // Only admin can use this route
+        const isAdmin = currentUser.role === 'administrator';
+        
+        if (!isAdmin) {
+            return res.status(403).json({
+                success: false,
+                message: "Chỉ quản trị viên mới có quyền sử dụng chức năng này."
+            });
+        }
+
+        // 2. Gọi service để đổi mật khẩu (admin không cần oldPassword)
+        const updatedUser = await userService.changeUserPassword(id, newPassword, null, true);
+        
+        logger.info(`Password changed for user ${id} by admin ${currentUser.employee_code}`);
+        
         res.status(200).json({
             success: true,
             message: "Đổi mật khẩu thành công!",
             user: updatedUser,
         });
     } catch (error) {
-        // 3. Xử lý lỗi (ví dụ: user không tồn tại)
+        logger.error(`Error changing password for user ${id}:`, error);
+        
+        // 3. Xử lý lỗi
         if (error.message.includes('không tìm thấy')) {
+            res.status(404).json({ success: false, message: error.message });
+        } else {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    }
+});
+
+// NEW: Route for users to change their own password
+exports.changeMyPassword = asyncHandler(async (req, res) => {
+    // 1. Kiểm tra kết quả validation
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ 
+            success: false,
+            message: "Dữ liệu không hợp lệ.",
+            errors: errors.array() 
+        });
+    }
+
+    const { newPassword, oldPassword } = req.body;
+    const currentUser = req.user; // From JWT middleware
+
+    try {
+        // 2. Gọi service để đổi mật khẩu của chính mình
+        const updatedUser = await userService.changeUserPassword(
+            currentUser.employee_code, 
+            newPassword, 
+            oldPassword, 
+            false // Not admin, so requires oldPassword verification
+        );
+        
+        logger.info(`User ${currentUser.employee_code} changed their own password`);
+        
+        res.status(200).json({
+            success: true,
+            message: "Đổi mật khẩu thành công!",
+            user: updatedUser,
+        });
+    } catch (error) {
+        logger.error(`Error changing own password for user ${currentUser.employee_code}:`, error);
+        
+        // 3. Xử lý lỗi cụ thể
+        if (error.message.includes('không đúng') || error.message.includes('sai')) {
+            res.status(400).json({ success: false, message: error.message });
+        } else if (error.message.includes('không tìm thấy')) {
             res.status(404).json({ success: false, message: error.message });
         } else {
             res.status(500).json({ success: false, message: error.message });

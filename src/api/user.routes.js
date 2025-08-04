@@ -35,6 +35,10 @@ const changePasswordValidationRules = [
     body("newPassword")
         .isLength({ min: 6 })
         .withMessage("Mật khẩu mới phải có ít nhất 6 ký tự."),
+    body("oldPassword")
+        .optional()
+        .isLength({ min: 1 })
+        .withMessage("Mật khẩu hiện tại không được để trống."),
 ];
 
 // Validation rules for updating a user
@@ -133,13 +137,21 @@ router.patch(
     userController.toggleUserStatus // 3. Xử lý logic
 );
 
-// Định nghĩa route: PATCH /api/users/:id/change-password - Change user password
+// Định nghĩa route: PATCH /api/users/:id/change-password - Change user password (Admin only)
 router.patch(
     "/:id/change-password",
     protect, // 1. Yêu cầu đăng nhập
-    authorize("administrator"), // 2. Chỉ Administrator được phép đổi mật khẩu
+    authorize("administrator"), // 2. Chỉ Administrator được phép đổi mật khẩu người khác
     changePasswordValidationRules, // 3. Validation rules cho change password
     userController.changeUserPassword // 4. Xử lý logic
+);
+
+// Định nghĩa route: PATCH /api/users/change-my-password - Change own password
+router.patch(
+    "/change-my-password",
+    protect, // 1. Yêu cầu đăng nhập
+    changePasswordValidationRules, // 2. Validation rules cho change password
+    userController.changeMyPassword // 3. Xử lý logic cho đổi mật khẩu của chính mình
 );
 
 router.delete(

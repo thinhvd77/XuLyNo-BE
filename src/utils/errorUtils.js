@@ -167,6 +167,38 @@ const sanitizeSearchQuery = (query) => {
         .substring(0, 100); // Limit length
 };
 
+/**
+ * Validate Excel file format
+ */
+const validateExcelFile = (file) => {
+    if (!file) {
+        throw new ValidationError('No file provided');
+    }
+
+    // Check MIME type
+    const allowedMimeTypes = [
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    ];
+
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+        throw new ValidationError(`Loại file không hợp lệ. Chỉ chấp nhận file Excel (.xls, .xlsx). File được tải lên có định dạng: ${file.mimetype}`);
+    }
+
+    // Check file extension
+    const fileExtension = file.originalname.split('.').pop().toLowerCase();
+    if (!['xls', 'xlsx'].includes(fileExtension)) {
+        throw new ValidationError(`Phần mở rộng file không hợp lệ. Chỉ chấp nhận file .xls và .xlsx. File được tải lên: ${file.originalname}`);
+    }
+
+    // Check file buffer
+    if (file.buffer && file.buffer.length === 0) {
+        throw new ValidationError('File rỗng hoặc không hợp lệ');
+    }
+
+    return true;
+};
+
 module.exports = {
     validateRequiredFields,
     validateEmail,
@@ -178,5 +210,6 @@ module.exports = {
     validateCaseId,
     handleDatabaseConstraintError,
     validateDateRange,
-    sanitizeSearchQuery
+    sanitizeSearchQuery,
+    validateExcelFile
 };

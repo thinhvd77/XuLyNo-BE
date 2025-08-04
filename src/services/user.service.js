@@ -267,11 +267,23 @@ exports.toggleUserStatus = async (id) => {
  * @param {string} id - Employee code của user cần đổi mật khẩu
  * @param {string} newPassword - Mật khẩu mới
  */
-exports.changeUserPassword = async (id, newPassword) => {
+exports.changeUserPassword = async (id, newPassword, oldPassword = null, isAdmin = false) => {
     const userRepository = AppDataSource.getRepository("User");
     const userToUpdate = await userRepository.findOneBy({ employee_code: id });
     if (!userToUpdate) throw new Error("Người dùng không tìm thấy.");
 
+    // If not admin, require and verify old password
+    if (!isAdmin) {
+        if (!oldPassword) {
+            throw new Error("Vui lòng nhập mật khẩu hiện tại.");
+        }
+        const isOldPasswordValid = await bcrypt.compare(oldPassword, userToUpdate.password);
+        if (!isOldPasswordValid) {
+            throw new Error("Mật khẩu hiện tại không đúng.");
+        }
+    }
+
+    // Hash and update new password
     userToUpdate.password = await bcrypt.hash(newPassword, 10);
     const updatedUser = await userRepository.save(userToUpdate);
 

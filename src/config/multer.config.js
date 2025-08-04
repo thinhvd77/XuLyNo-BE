@@ -293,4 +293,61 @@ const moveFileToFinalDestination = async (tempFilePath, caseData, uploader, docu
     }
 };
 
-module.exports = { upload, moveFileToFinalDestination, getDocumentTypeFolder };
+// Excel-specific file filter for import features
+const excelFileFilter = (req, file, cb) => {
+    try {
+        console.log(`[EXCEL_VALIDATION] Checking file: ${file.originalname}, MIME: ${file.mimetype}`);
+
+        // Define allowed Excel MIME types
+        const allowedExcelMimeTypes = [
+            'application/vnd.ms-excel',                                               // .xls
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',    // .xlsx
+        ];
+
+        // Check MIME type
+        if (!allowedExcelMimeTypes.includes(file.mimetype)) {
+            console.error(`[EXCEL_VALIDATION] Invalid MIME type: ${file.mimetype}`);
+            return cb(new Error(`Loại file không hợp lệ. Chỉ chấp nhận file Excel (.xls, .xlsx). File được tải lên có định dạng: ${file.mimetype}`), false);
+        }
+
+        // Check file extension
+        const fileExtension = path.extname(file.originalname).toLowerCase();
+        const allowedExtensions = ['.xls', '.xlsx'];
+        
+        if (!allowedExtensions.includes(fileExtension)) {
+            console.error(`[EXCEL_VALIDATION] Invalid file extension: ${fileExtension}`);
+            return cb(new Error(`Phần mở rộng file không hợp lệ. Chỉ chấp nhận file .xls và .xlsx. File được tải lên: ${file.originalname}`), false);
+        }
+
+        // Additional filename validation
+        if (!validateAndSanitizePath(file.originalname)) {
+            console.error(`[EXCEL_VALIDATION] Malicious filename blocked: ${file.originalname}`);
+            return cb(new Error('Tên file chứa ký tự không hợp lệ'), false);
+        }
+
+        console.log(`[EXCEL_VALIDATION] File validation passed: ${file.originalname}`);
+        cb(null, true);
+
+    } catch (error) {
+        console.error(`[EXCEL_VALIDATION] File filter error: ${error.message}`);
+        cb(new Error('Lỗi kiểm tra file Excel'), false);
+    }
+};
+
+// Excel upload configuration for import features
+const excelMemoryStorage = multer.memoryStorage();
+const uploadExcelInMemory = multer({
+    storage: excelMemoryStorage,
+    fileFilter: excelFileFilter,
+    limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB limit for Excel files
+        files: 1, // Only one file at a time
+    },
+});
+
+module.exports = { 
+    upload, 
+    moveFileToFinalDestination, 
+    getDocumentTypeFolder, 
+    uploadExcelInMemory 
+};

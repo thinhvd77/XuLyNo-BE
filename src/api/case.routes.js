@@ -2,14 +2,9 @@ const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
 const passport = require('passport');
-const multer = require('multer'); // MỚI: Import multer
 const caseController = require('../controllers/case.controller');
 const { protect, authorize } = require('../middleware/auth.middleware');
-const { upload: uploadFileToDisk } = require('../config/multer.config');
-
-// MỚI: Cấu hình multer để lưu file vào bộ nhớ
-const memoryStorage = multer.memoryStorage();
-const uploadExcelInMemory  = multer({ storage: memoryStorage });
+const { upload: uploadFileToDisk, uploadExcelInMemory } = require('../config/multer.config');
 
 // Middleware để log request body cho debugging
 const logRequestBody = (req, res, next) => {
