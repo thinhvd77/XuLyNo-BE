@@ -14,6 +14,8 @@ const CaseDocument = new EntitySchema({
     },
     original_filename: {
       type: 'varchar',
+      length: 500, // Increased length to support longer Vietnamese filenames
+      nullable: false,
     },
     file_path: {
       type: 'text',

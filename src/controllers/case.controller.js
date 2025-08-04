@@ -455,12 +455,14 @@ exports.downloadDocument = asyncHandler(async (req, res) => {
         throw new ValidationError("Truy cập file bị từ chối.");
     }
 
-    // Sanitize filename for download
-    const sanitizedFilename = document.original_filename?.replace(/[<>:"/\\|?*\0]/g, '_') || 'download';
-    const encodedFilename = encodeURIComponent(sanitizedFilename);
+    // Set proper headers for Vietnamese filename download
+    const originalFilename = document.original_filename || 'download';
+    
+    // Use RFC 5987 encoding for Unicode filenames
+    const encodedFilename = encodeURIComponent(originalFilename);
 
-    // Set secure headers for download
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
+    // Set secure headers for download with proper Vietnamese character support
+    res.setHeader('Content-Disposition', `attachment; filename="${originalFilename}"; filename*=UTF-8''${encodedFilename}`);
     res.setHeader('Content-Type', document.mime_type || 'application/octet-stream');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -543,13 +545,15 @@ exports.previewDocument = asyncHandler(async (req, res) => {
         throw new ValidationError("Truy cập file bị từ chối.");
     }
 
-    // Sanitize filename for preview
-    const sanitizedFilename = document.original_filename?.replace(/[<>:"/\\|?*\0]/g, '_') || 'preview';
-    const encodedFilename = encodeURIComponent(sanitizedFilename);
+    // Set proper headers for Vietnamese filename preview
+    const originalFilename = document.original_filename || 'preview';
+    
+    // Use RFC 5987 encoding for Unicode filenames
+    const encodedFilename = encodeURIComponent(originalFilename);
 
-    // Set secure headers for preview (inline display)
+    // Set secure headers for preview (inline display) with proper Vietnamese character support
     res.setHeader('Content-Type', document.mime_type || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodedFilename}`);
+    res.setHeader('Content-Disposition', `inline; filename="${originalFilename}"; filename*=UTF-8''${encodedFilename}`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Cache-Control', 'public, max-age=3600');

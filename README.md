@@ -50,6 +50,9 @@ DB_PASS=your_db_password
 DB_NAME=your_db_name
 ```
 
+npm run migration:generate src/database/migrations/InitialSchema
+npm run migration:run
+
 ## License
 
 MIT

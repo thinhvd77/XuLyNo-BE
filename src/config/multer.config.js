@@ -32,29 +32,39 @@ const ensureDirectoryExists = (dirPath) => {
     }
 };
 
-// Helper function để sanitize tên thư mục/file (ENHANCED SECURITY)
+// Helper function để sanitize tên thư mục/file với hỗ trợ tiếng Việt (ENHANCED SECURITY)
 const sanitizeFileName = (name) => {
     if (!name || typeof name !== 'string') {
         return 'default';
     }
 
-    // Loại bỏ các ký tự nguy hiểm và path traversal attempts
-    let sanitized = name
+    // Normalize Unicode để xử lý tiếng Việt đúng cách
+    let sanitized = name.normalize('NFC');
+
+    // Chỉ loại bỏ các ký tự thực sự nguy hiểm, BẢO TỒN hoàn toàn tiếng Việt
+    // Chỉ xóa: path separators, null bytes, và các ký tự điều khiển thực sự nguy hiểm
+    sanitized = sanitized
         .replace(/[<>:"/\\|?*\0]/g, '_')  // Windows forbidden characters
         .replace(/\.\./g, '_')           // Path traversal attempts
         .replace(/^\.+/g, '_')           // Leading dots
-        .replace(/\s+/g, '_')            // Multiple whitespace
+        .replace(/\s+/g, ' ')            // Normalize whitespace nhưng KHÔNG thay bằng underscore
         .trim();
 
     // Ensure filename is not empty and not reserved
     const reservedNames = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'];
-    if (!sanitized || reservedNames.includes(sanitized.toUpperCase())) {
+    if (!sanitized || sanitized === '' || reservedNames.includes(sanitized.toUpperCase())) {
         sanitized = `safe_${crypto.randomBytes(4).toString('hex')}`;
     }
 
-    // Limit length to prevent filesystem issues
-    if (sanitized.length > 100) {
-        sanitized = sanitized.substring(0, 100);
+    // Limit length để tránh vấn đề filesystem, tính theo bytes để hỗ trợ UTF-8
+    const maxBytes = 200; // Tăng limit để hỗ trợ Vietnamese characters
+    while (Buffer.byteLength(sanitized, 'utf8') > maxBytes && sanitized.length > 0) {
+        sanitized = sanitized.slice(0, -1);
+    }
+
+    // Final safety check
+    if (!sanitized || sanitized.trim() === '') {
+        sanitized = `safe_${crypto.randomBytes(4).toString('hex')}`;
     }
 
     return sanitized;
@@ -131,15 +141,50 @@ const allowedMimeTypes = [
 // Dangerous file extensions that should never be allowed
 const dangerousExtensions = ['.exe', '.bat', '.cmd', '.com', '.scr', '.pif', '.vbs', '.js', '.jar', '.app', '.deb', '.rpm', '.dmg'];
 
-// File filter function (ENHANCED SECURITY)
+// Helper function để decode Vietnamese filename đúng cách
+const decodeVietnameseFilename = (filename) => {
+    if (!filename) return filename;
+    
+    try {
+        // KHÔNG decode anything - chỉ normalize Unicode
+        // Multer đã nhận được filename đúng từ client, chúng ta chỉ cần normalize
+        let normalized = filename.normalize('NFC');
+        
+        console.log(`[INFO] Processing Vietnamese filename: "${filename}" -> "${normalized}"`);
+        console.log(`[INFO] Filename bytes: ${Buffer.from(normalized, 'utf8').length}, chars: ${normalized.length}`);
+        
+        // Chỉ thử decode nếu filename có dấu hiệu của double encoding (chứa Ã, v.v.)
+        if (normalized.includes('Ã') || normalized.includes('â€')) {
+            console.log(`[WARNING] Detected possible double-encoding in filename: ${normalized}`);
+            // Cố gắng sửa double encoding bằng cách decode từ Latin-1 về UTF-8
+            try {
+                const buffer = Buffer.from(normalized, 'latin1');
+                const corrected = buffer.toString('utf8').normalize('NFC');
+                console.log(`[INFO] Corrected double-encoding: "${normalized}" -> "${corrected}"`);
+                return corrected;
+            } catch (e) {
+                console.log(`[WARNING] Could not correct encoding, using original: ${normalized}`);
+            }
+        }
+        
+        return normalized;
+        
+    } catch (error) {
+        console.warn(`[WARNING] Filename processing error: ${error.message}, using original: ${filename}`);
+        return filename.normalize('NFC');
+    }
+};
+
+// File filter function (ENHANCED SECURITY với hỗ trợ tiếng Việt)
 const fileFilter = (req, file, cb) => {
     try {
-        // Decode tên file để xử lý tiếng Việt
-        try {
-            file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
-        } catch (e) {
-            console.warn(`[SECURITY] Could not decode filename: ${file.originalname}`);
-        }
+        // QUAN TRỌNG: Đảm bảo encoding của filename được xử lý đúng
+        console.log(`[INFO] Raw filename from client: "${file.originalname}"`);
+        console.log(`[INFO] Filename buffer:`, Buffer.from(file.originalname, 'utf8'));
+        
+        // Xử lý filename để hỗ trợ tiếng Việt
+        file.originalname = decodeVietnameseFilename(file.originalname);
+        console.log(`[INFO] Processed filename: "${file.originalname}"`);
 
         // Check file extension for dangerous types
         const fileExtension = path.extname(file.originalname).toLowerCase();
@@ -160,7 +205,7 @@ const fileFilter = (req, file, cb) => {
             return cb(new Error('Tên file chứa ký tự không hợp lệ'), false);
         }
 
-        console.log(`[SECURITY] File upload approved: ${file.originalname}, MIME: ${file.mimetype}`);
+        console.log(`[SECURITY] File upload approved: "${file.originalname}", MIME: ${file.mimetype}`);
         cb(null, true);
 
     } catch (error) {
@@ -192,17 +237,25 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     try {
-        // Tạo tên file an toàn với timestamp và random string
+        // Tạo tên file an toàn với timestamp và random string, BẢO TỒN tiếng Việt
         const timestamp = Date.now();
         const randomId = crypto.randomBytes(8).toString('hex');
         const extension = path.extname(file.originalname);
         const baseName = path.basename(file.originalname, extension);
+        
+        // BẢO TỒN original filename cho database storage - KHÔNG sanitize
+        if (!file.originalVietnameseName) {
+            file.originalVietnameseName = file.originalname;
+        }
+        
+        // Chỉ sanitize basename cho việc tạo filename vật lý, KHÔNG ảnh hưởng đến database
         const sanitizedBaseName = sanitizeFileName(baseName);
 
         // Format: sanitizedName_timestamp_randomId.extension
         const finalFileName = `${sanitizedBaseName}_${timestamp}_${randomId}${extension}`;
 
-        console.log(`[SECURITY] Safe filename generated: ${finalFileName}`);
+        console.log(`[INFO] Original Vietnamese filename preserved for database: ${file.originalVietnameseName}`);
+        console.log(`[INFO] Physical filename generated (safe for filesystem): ${finalFileName}`);
         cb(null, finalFileName);
 
     } catch (error) {
@@ -242,17 +295,36 @@ const moveFileToFinalDestination = async (tempFilePath, caseData, uploader, docu
             throw new Error('[SECURITY] Invalid temp file path or file does not exist');
         }
 
-        // Create safe directory path segments
+        // Create safe directory path segments with debugging
         const cbtdName = sanitizeFileName(uploader.fullname || uploader.employee_code || 'unknown_user');
         const customerCode = sanitizeFileName(caseData.customer_code || 'unknown_customer');
         const caseType = sanitizeFileName(getCaseType(caseData));
         const docTypeFolder = sanitizeFileName(getDocumentTypeFolder(documentType));
         
+        console.log(`[INFO] Creating directory path for:`, {
+            cbtd: cbtdName,
+            customer: customerCode,
+            type: caseType,
+            docType: docTypeFolder
+        });
+        
+        // Validate each segment before creating path
+        const pathSegments = [cbtdName, customerCode, caseType, docTypeFolder];
+        const invalidSegments = pathSegments.filter(segment => !segment || segment.trim() === '');
+        
+        if (invalidSegments.length > 0) {
+            console.error(`[SECURITY] Invalid path segments detected:`, {
+                segments: pathSegments,
+                invalidCount: invalidSegments.length
+            });
+            throw new Error(`[SECURITY] Invalid path segments: ${invalidSegments.length} empty segments found`);
+        }
+        
         // Create safe final directory path
-        const finalDir = createSafeDirectoryPath([cbtdName, customerCode, caseType, docTypeFolder]);
+        const finalDir = createSafeDirectoryPath(pathSegments);
 
         if (!finalDir) {
-            throw new Error('[SECURITY] Failed to create safe destination directory path');
+            throw new Error('[SECURITY] Failed to create safe destination directory path after validation');
         }
 
         // Tạo thư mục đích nếu chưa tồn tại
@@ -293,4 +365,10 @@ const moveFileToFinalDestination = async (tempFilePath, caseData, uploader, docu
     }
 };
 
-module.exports = { upload, moveFileToFinalDestination, getDocumentTypeFolder };
+module.exports = { 
+    upload, 
+    moveFileToFinalDestination, 
+    getDocumentTypeFolder,
+    sanitizeFileName,
+    decodeVietnameseFilename 
+};

@@ -163,7 +163,7 @@ exports.toggleUserStatus = asyncHandler(async (req, res) => {
 });
 
 /**
- * Change user password
+ * Change user password (admin only)
  */
 exports.changeUserPassword = asyncHandler(async (req, res) => {
     // 1. Kiểm tra kết quả validation
@@ -188,9 +188,46 @@ exports.changeUserPassword = asyncHandler(async (req, res) => {
             user: updatedUser,
         });
     } catch (error) {
-        // 3. Xử lý lỗi (ví dụ: user không tồn tại)
+        // 3. Xử lý lỗi (ví dụ: user không tìm thấy)
         if (error.message.includes('không tìm thấy')) {
             res.status(404).json({ success: false, message: error.message });
+        } else {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    }
+});
+
+/**
+ * Change self password (requires old password verification)
+ */
+exports.changeSelfPassword = asyncHandler(async (req, res) => {
+    // 1. Kiểm tra kết quả validation
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ 
+            success: false,
+            message: "Dữ liệu không hợp lệ.",
+            errors: errors.array() 
+        });
+    }
+
+    const { oldPassword, newPassword } = req.body;
+    const currentUserId = req.user.employee_code; // Get current user from auth middleware
+
+    try {
+        // 2. Gọi service để đổi mật khẩu với xác thực mật khẩu cũ
+        const updatedUser = await userService.changeSelfPassword(currentUserId, oldPassword, newPassword);
+        res.status(200).json({
+            success: true,
+            message: "Đổi mật khẩu thành công!",
+            user: updatedUser,
+        });
+    } catch (error) {
+        // 3. Xử lý lỗi
+        if (error.message.includes('không tìm thấy')) {
+            res.status(404).json({ success: false, message: error.message });
+        } else if (error.message.includes('Mật khẩu hiện tại không đúng')) {
+            res.status(400).json({ success: false, message: error.message });
         } else {
             res.status(500).json({ success: false, message: error.message });
         }

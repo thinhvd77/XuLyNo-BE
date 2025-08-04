@@ -263,7 +263,7 @@ exports.toggleUserStatus = async (id) => {
 
 
 /**
- * Change user password
+ * Change user password (admin only)
  * @param {string} id - Employee code của user cần đổi mật khẩu
  * @param {string} newPassword - Mật khẩu mới
  */
@@ -272,6 +272,30 @@ exports.changeUserPassword = async (id, newPassword) => {
     const userToUpdate = await userRepository.findOneBy({ employee_code: id });
     if (!userToUpdate) throw new Error("Người dùng không tìm thấy.");
 
+    userToUpdate.password = await bcrypt.hash(newPassword, 10);
+    const updatedUser = await userRepository.save(userToUpdate);
+
+    return toUserResponse(updatedUser);
+};
+
+/**
+ * Change self password (requires old password verification)
+ * @param {string} id - Employee code của user đang đăng nhập
+ * @param {string} oldPassword - Mật khẩu hiện tại
+ * @param {string} newPassword - Mật khẩu mới
+ */
+exports.changeSelfPassword = async (id, oldPassword, newPassword) => {
+    const userRepository = AppDataSource.getRepository("User");
+    const userToUpdate = await userRepository.findOneBy({ employee_code: id });
+    if (!userToUpdate) throw new Error("Người dùng không tìm thấy.");
+
+    // Verify old password
+    const isOldPasswordValid = await bcrypt.compare(oldPassword, userToUpdate.password);
+    if (!isOldPasswordValid) {
+        throw new Error("Mật khẩu hiện tại không đúng.");
+    }
+
+    // Update to new password
     userToUpdate.password = await bcrypt.hash(newPassword, 10);
     const updatedUser = await userRepository.save(userToUpdate);
 

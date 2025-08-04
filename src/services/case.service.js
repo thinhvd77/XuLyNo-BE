@@ -424,6 +424,20 @@ exports.findAllCases = async (page = 1, filters = {}, limit = 20, sorting = {}, 
     }
 };
 
+/** * MỚI: Tìm tất cả hồ sơ theo bộ lọc department và branch
+ * @param {number} page - Trang hiện tại (mặc định: 1)
+ * @param {object} filters - Bộ lọc tùy chọn (bao gồm department, branch_code, search, type, status, employee_code)
+ * @param {number} limit - Số lượng bản ghi trên mỗi trang (mặc định: 20, tối đa: 1000)
+ * @param {object} sorting - Thông tin sắp xếp (bao gồm sortBy và sortOrder)
+ * @return {Promise<object>} - Kết quả tìm kiếm với phân trang và bộ lọc
+ * @throws {Error} - Nếu có lỗi trong quá trình tìm kiếm hoặc phân trang
+ * * Core Requirement: Tìm kiếm hồ sơ theo department và branch_code, áp dụng AND logic
+ * * Core Requirement: Chỉ cho phép tìm kiếm hồ sơ của nhân viên trong cùng department và branch_code
+ * * * Core Requirement: Phải có phân trang với page và limit, mặc định là 1 và 20
+ * * * Core Requirement: Phải có bộ lọc tìm kiếm theo tên khách hàng, mã khách hàng, loại hồ sơ, trạng thái hồ sơ
+ * * * Core Requirement: Phải có sắp xếp theo trường hợp định nghĩa trong sorting
+ * * * Core Requirement: Phải có thông tin về người phụ trách hồ sơ (officer) trong kết quả
+ */
 exports.findDepartmentCases = async (page = 1, filters = {}, limit = 20, sorting = {}) => {
     try {
         // Input validation
@@ -877,25 +891,25 @@ exports.addDocumentToCase = async (caseId, fileInfo, uploader, documentType = 'o
         throw new Error("Không tìm thấy hồ sơ.");
     }
 
-    // Decode tên file để xử lý tiếng Việt đúng cách
-    const decodeFilename = (filename) => {
-        try {
-            // Thử decode URIComponent nếu có
-            return decodeURIComponent(filename);
-        } catch (e) {
-            // Nếu không decode được, thử với Buffer
-            try {
-                return Buffer.from(filename, 'latin1').toString('utf8');
-            } catch (e2) {
-                // Nếu vẫn không được, giữ nguyên
-                return filename;
-            }
+    // Function để lấy original filename, ưu tiên Vietnamese filename được bảo tồn
+    const getOriginalFilename = (fileInfo) => {
+        // Ưu tiên sử dụng Vietnamese filename được bảo tồn từ multer
+        if (fileInfo.originalVietnameseName) {
+            console.log(`[INFO] Using preserved Vietnamese filename: ${fileInfo.originalVietnameseName}`);
+            return fileInfo.originalVietnameseName;
         }
+        
+        // Fallback: sử dụng originalname từ multer (đã được decode)
+        const originalFilename = fileInfo.originalname;
+        console.log(`[INFO] Using multer originalname: ${originalFilename}`);
+        return originalFilename;
     };
+
+    const originalFilename = getOriginalFilename(fileInfo);
 
     const newDocumentData = {
         case_id: caseId,
-        original_filename: decodeFilename(fileInfo.originalname),
+        original_filename: originalFilename,
         file_path: getRelativeFilePath(fileInfo.path), // Lưu relative path thay vì absolute path
         mime_type: fileInfo.mimetype,
         file_size: fileInfo.size,
@@ -908,7 +922,9 @@ exports.addDocumentToCase = async (caseId, fileInfo, uploader, documentType = 'o
 
     // Log thông tin file đã lưu
     console.log('Document saved with structured path:', {
-        originalName: fileInfo.originalname,
+        originalName: originalFilename,
+        vietnameseName: fileInfo.originalVietnameseName || 'not preserved',
+        storedName: fileInfo.originalname,
         relativePath: getRelativeFilePath(fileInfo.path),
         absolutePath: fileInfo.path,
         documentType: documentType,
@@ -930,7 +946,7 @@ exports.addDocumentToCase = async (caseId, fileInfo, uploader, documentType = 'o
     };
 
     const fileSizeKB = Math.round(fileInfo.size / 1024);
-    const updateContent = `Đã tải lên tài liệu "${fileInfo.originalname}" (${getTypeName(documentType)}, ${fileSizeKB} KB)`;
+    const updateContent = `Đã tải lên tài liệu "${originalFilename}" (${getTypeName(documentType)}, ${fileSizeKB} KB)`;
     
     const updateData = {
         case_id: caseId,
