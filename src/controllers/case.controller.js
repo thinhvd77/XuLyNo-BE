@@ -458,11 +458,14 @@ exports.downloadDocument = asyncHandler(async (req, res) => {
     // Set proper headers for Vietnamese filename download
     const originalFilename = document.original_filename || 'download';
     
+    // Create ASCII-safe filename for the basic filename parameter
+    const asciiSafeFilename = originalFilename.replace(/[^\x20-\x7E]/g, '_');
+    
     // Use RFC 5987 encoding for Unicode filenames
     const encodedFilename = encodeURIComponent(originalFilename);
 
     // Set secure headers for download with proper Vietnamese character support
-    res.setHeader('Content-Disposition', `attachment; filename="${originalFilename}"; filename*=UTF-8''${encodedFilename}`);
+    res.setHeader('Content-Disposition', `attachment; filename="${asciiSafeFilename}"; filename*=UTF-8''${encodedFilename}`);
     res.setHeader('Content-Type', document.mime_type || 'application/octet-stream');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -548,12 +551,15 @@ exports.previewDocument = asyncHandler(async (req, res) => {
     // Set proper headers for Vietnamese filename preview
     const originalFilename = document.original_filename || 'preview';
     
+    // Create ASCII-safe filename for the basic filename parameter
+    const asciiSafeFilename = originalFilename.replace(/[^\x20-\x7E]/g, '_');
+    
     // Use RFC 5987 encoding for Unicode filenames
     const encodedFilename = encodeURIComponent(originalFilename);
 
     // Set secure headers for preview (inline display) with proper Vietnamese character support
     res.setHeader('Content-Type', document.mime_type || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `inline; filename="${originalFilename}"; filename*=UTF-8''${encodedFilename}`);
+    res.setHeader('Content-Disposition', `inline; filename="${asciiSafeFilename}"; filename*=UTF-8''${encodedFilename}`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Cache-Control', 'public, max-age=3600');

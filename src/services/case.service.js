@@ -891,25 +891,25 @@ exports.addDocumentToCase = async (caseId, fileInfo, uploader, documentType = 'o
         throw new Error("Không tìm thấy hồ sơ.");
     }
 
-    // Function để lấy original filename, ưu tiên Vietnamese filename được bảo tồn
-    const getOriginalFilename = (fileInfo) => {
-        // Ưu tiên sử dụng Vietnamese filename được bảo tồn từ multer
-        if (fileInfo.originalVietnameseName) {
-            console.log(`[INFO] Using preserved Vietnamese filename: ${fileInfo.originalVietnameseName}`);
-            return fileInfo.originalVietnameseName;
+    // Decode tên file để xử lý tiếng Việt đúng cách
+    const decodeFilename = (filename) => {
+        try {
+            // Thử decode URIComponent nếu có
+            return decodeURIComponent(filename);
+        } catch (e) {
+            // Nếu không decode được, thử với Buffer
+            try {
+                return Buffer.from(filename, 'latin1').toString('utf8');
+            } catch (e2) {
+                // Nếu vẫn không được, giữ nguyên
+                return filename;
+            }
         }
-        
-        // Fallback: sử dụng originalname từ multer (đã được decode)
-        const originalFilename = fileInfo.originalname;
-        console.log(`[INFO] Using multer originalname: ${originalFilename}`);
-        return originalFilename;
     };
-
-    const originalFilename = getOriginalFilename(fileInfo);
 
     const newDocumentData = {
         case_id: caseId,
-        original_filename: originalFilename,
+        original_filename: decodeFilename(fileInfo.originalname),
         file_path: getRelativeFilePath(fileInfo.path), // Lưu relative path thay vì absolute path
         mime_type: fileInfo.mimetype,
         file_size: fileInfo.size,
@@ -922,9 +922,7 @@ exports.addDocumentToCase = async (caseId, fileInfo, uploader, documentType = 'o
 
     // Log thông tin file đã lưu
     console.log('Document saved with structured path:', {
-        originalName: originalFilename,
-        vietnameseName: fileInfo.originalVietnameseName || 'not preserved',
-        storedName: fileInfo.originalname,
+        originalName: fileInfo.originalname,
         relativePath: getRelativeFilePath(fileInfo.path),
         absolutePath: fileInfo.path,
         documentType: documentType,
@@ -946,7 +944,7 @@ exports.addDocumentToCase = async (caseId, fileInfo, uploader, documentType = 'o
     };
 
     const fileSizeKB = Math.round(fileInfo.size / 1024);
-    const updateContent = `Đã tải lên tài liệu "${originalFilename}" (${getTypeName(documentType)}, ${fileSizeKB} KB)`;
+    const updateContent = `Đã tải lên tài liệu "${fileInfo.originalname}" (${getTypeName(documentType)}, ${fileSizeKB} KB)`;
     
     const updateData = {
         case_id: caseId,

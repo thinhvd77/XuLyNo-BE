@@ -9,7 +9,7 @@ const path = require('path');
 const SAFE_BASE_DIR = path.resolve('D:/FilesXuLyNo/');
 
 /**
- * Validate và sanitize file path để ngăn chặn path traversal với hỗ trợ tiếng Việt
+ * Validate và sanitize file path để ngăn chặn path traversal
  * @param {string} inputPath - Đường dẫn đầu vào cần validate
  * @param {boolean} allowAbsolute - Cho phép đường dẫn tuyệt đối (dành cho temp files)
  * @returns {string|null} - Đường dẫn an toàn hoặc null nếu không hợp lệ
@@ -19,11 +19,8 @@ const validateAndSanitizePath = (inputPath, allowAbsolute = false) => {
         return null;
     }
 
-    // Normalize Unicode để xử lý tiếng Việt đúng cách
-    let sanitized = inputPath.normalize('NFC');
-    
     // Loại bỏ null bytes
-    sanitized = sanitized.replace(/\0/g, '').trim();
+    const sanitized = inputPath.replace(/\0/g, '').trim();
 
     // Check for dangerous path traversal patterns first
     const pathTraversalPatterns = [
@@ -46,7 +43,6 @@ const validateAndSanitizePath = (inputPath, allowAbsolute = false) => {
 
         if (isValidWindowsPath || isValidUnixPath) {
             // Additional check: ensure no dangerous characters except drive colon
-            // BẢO TỒN tiếng Việt bằng cách chỉ kiểm tra các ký tự thực sự nguy hiểm
             if (/[<>"|?*]/.test(sanitized.replace(/^[A-Za-z]:/, ''))) {
                 console.log(`[SECURITY] Rejected path with dangerous characters: ${sanitized}`);
                 return null;
@@ -55,8 +51,9 @@ const validateAndSanitizePath = (inputPath, allowAbsolute = false) => {
         }
     }
 
-    // For relative paths, chỉ reject các ký tự thực sự nguy hiểm, BẢO TỒN tiếng Việt
-    if (/[<>"|?*\/\\]/.test(sanitized)) {
+    // For relative paths, only reject characters that are invalid in filenames,
+    // but allow path separators. This preserves the directory structure.
+    if (/[<>"|?*]/.test(sanitized)) {
         console.log(`[SECURITY] Rejected relative path with dangerous characters: ${sanitized}`);
         return null;
     }
@@ -177,7 +174,7 @@ const getFilePathBreadcrumb = (filePath) => {
 };
 
 /**
- * Safely create directory path within base directory với hỗ trợ tiếng Việt
+ * Safely create directory path within base directory
  * @param {Array} pathSegments - Array of path segments to join
  * @returns {string|null} - Safe directory path or null if invalid
  */
@@ -186,38 +183,23 @@ const createSafeDirectoryPath = (pathSegments) => {
         return null;
     }
 
-    // Sanitize each segment BẢO TỒN tiếng Việt
-    const sanitizedSegments = pathSegments.map((segment, index) => {
+    // Sanitize each segment - only remove truly dangerous characters, preserve Vietnamese
+    const sanitizedSegments = pathSegments.map(segment => {
         if (!segment || typeof segment !== 'string') {
-            console.warn(`[SECURITY] createSafeDirectoryPath: Invalid segment at index ${index}:`, segment);
             return null;
         }
-        // Normalize Unicode để xử lý tiếng Việt đúng cách
-        const normalized = segment.normalize('NFC');
-        // Chỉ loại bỏ các ký tự nguy hiểm, BẢO TỒN tiếng Việt và khoảng trắng
-        const sanitized = normalized.replace(/[<>:"/\\|?*\0]/g, '_').trim();
-        
-        if (!sanitized) {
-            console.warn(`[SECURITY] createSafeDirectoryPath: Segment became empty after sanitization at index ${index}:`, segment);
-            return null;
-        }
-        
-        return sanitized;
-    });
+        // Only remove characters that are actually dangerous for file systems
+        // Preserve Vietnamese characters and spaces
+        return segment.replace(/[<>:"|?*\0]/g, '_').trim();
+    }).filter(Boolean);
 
-    const validSegments = sanitizedSegments.filter(Boolean);
-
-    if (validSegments.length !== pathSegments.length) {
-        console.warn(`[SECURITY] Some path segments were rejected during sanitization: ${pathSegments.length} -> ${validSegments.length}`);
+    if (sanitizedSegments.length !== pathSegments.length) {
+        console.warn(`[SECURITY] Some path segments were rejected during sanitization`);
         return null;
     }
 
-    const relativePath = path.join(...validSegments);
-    
-    // Use securePathResolve which now handles joined paths properly
-    const resolvedPath = securePathResolve(relativePath);
-    
-    return resolvedPath;
+    const relativePath = path.join(...sanitizedSegments);
+    return securePathResolve(relativePath);
 };
 
 module.exports = {

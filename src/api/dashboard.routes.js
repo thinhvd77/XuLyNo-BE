@@ -17,7 +17,7 @@ router.get(
 router.get(
     '/director-stats',
     protect, // Yêu cầu đăng nhập
-    authorize('director', 'deputy_director', 'administrator'), // Chỉ Ban Giám Đốc được phép
+    authorize('manager', 'director', 'deputy_director', 'administrator'), // Chỉ Ban Giám Đốc được phép
     dashboardController.getDirectorStats
 );
 

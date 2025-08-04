@@ -13,10 +13,5 @@ module.exports = new DataSource({
     logging: false,
     entities: [__dirname + '/../models/*.js'],
     migrations: [__dirname + '/../database/migrations/*.js'],
-    extra: {
-        // PostgreSQL connection options for Vietnamese character support
-        client_encoding: 'UTF8',
-        charset: 'utf8mb4'
-    }
 });
 

@@ -72,16 +72,8 @@ app.use(cors(corsOptions));
 // Middleware xử lý preflight requests
 app.options('*', cors(corsOptions));
 
-// Basic Express configuration with UTF-8 support for Vietnamese characters
-app.use(express.json({ 
-    limit: '50mb',
-    charset: 'utf-8'
-}));
-app.use(express.urlencoded({ 
-    extended: true, 
-    limit: '50mb',
-    charset: 'utf-8'
-}));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Middleware để đảm bảo CORS headers cho tất cả responses
 app.use((req, res, next) => {
