@@ -18,4 +18,7 @@ router.get('/export-latest-updates', reportController.exportLatestDateUpdatesRep
 // GET /api/report/filters - Lấy danh sách options cho filter
 router.get('/filters', reportController.getFilterOptions);
 
+// GET /api/report/employees-by-branch - Lấy danh sách nhân viên theo chi nhánh
+router.get('/employees-by-branch', reportController.getEmployeesByBranch);
+
 module.exports = router;

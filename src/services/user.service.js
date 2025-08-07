@@ -28,10 +28,15 @@ exports.createUser = async (userData) => {
             throw new Error('User data is required');
         }
 
-        const { username, employee_code, password } = userData;
+        const { username, employee_code, password, fullname, branch_code, dept, role } = userData;
 
+        // Validate required fields
         if (!username || !employee_code || !password) {
             throw new Error('Username, employee_code, and password are required');
+        }
+
+        if (!fullname || !branch_code || !dept || !role) {
+            throw new Error('Fullname, branch_code, dept, and role are required');
         }
 
         const userRepository = AppDataSource.getRepository("User");
@@ -48,7 +53,12 @@ exports.createUser = async (userData) => {
         }
 
         if (existingUser) {
-            throw new Error("Tên đăng nhập hoặc Mã nhân viên đã tồn tại.");
+            if (existingUser.username === username) {
+                throw new Error("Tên đăng nhập đã tồn tại.");
+            }
+            if (existingUser.employee_code === employee_code) {
+                throw new Error("Mã nhân viên đã tồn tại.");
+            }
         }
 
         // 2. Băm mật khẩu
@@ -64,22 +74,37 @@ exports.createUser = async (userData) => {
         const newUser = userRepository.create({
             ...userData,
             password: hashedPassword,
+            status: 'active' // Set default status
         });
 
         try {
-            await userRepository.save(newUser);
+            const savedUser = await userRepository.save(newUser);
+            logger.info(`User created successfully: ${employee_code}`);
+            
+            // 4. Trả về dữ liệu người dùng (loại bỏ mật khẩu)
+            const { password: _, ...userWithoutPassword } = savedUser;
+            return userWithoutPassword;
         } catch (saveError) {
-            logger.error('Error saving new user:', saveError);
-            throw new Error('Failed to create user');
+            logger.error('Error saving new user:', {
+                error: saveError.message,
+                stack: saveError.stack,
+                userData: { ...userData, password: '[HIDDEN]' }
+            });
+            
+            // Check for specific database errors
+            if (saveError.code === '23505') { // PostgreSQL unique violation
+                throw new Error('Tên đăng nhập hoặc mã nhân viên đã tồn tại.');
+            }
+            
+            throw new Error(`Failed to create user: ${saveError.message}`);
         }
 
-        // 4. Trả về dữ liệu người dùng (loại bỏ mật khẩu)
-        const { password: _, ...userWithoutPassword } = newUser;
-        logger.info(`User created successfully: ${employee_code}`);
-        return userWithoutPassword;
-
     } catch (error) {
-        logger.error('Error in createUser:', error);
+        logger.error('Error in createUser:', {
+            error: error.message,
+            stack: error.stack,
+            userData: userData ? { ...userData, password: '[HIDDEN]' } : null
+        });
         throw error;
     }
 };
@@ -313,9 +338,13 @@ exports.findOfficersByManager = async (manager) => {
 /**
  * MỚI: Lấy danh sách tất cả nhân viên để sử dụng cho filter dropdown
  */
-exports.getEmployeesForFilter = async (directorBranchCode = null) => {
+exports.getEmployeesForFilter = async (directorBranchCode = null, selectedBranchCode = null, selectedDepartmentCode = null) => {
     try {
-        logger.info("Starting to fetch employees for filter dropdown", { directorBranchCode });
+        logger.info("Starting to fetch employees for filter dropdown", { 
+            directorBranchCode, 
+            selectedBranchCode, 
+            selectedDepartmentCode 
+        });
 
         if (!directorBranchCode) {
             throw new Error('Director branch code is required');
@@ -329,21 +358,33 @@ exports.getEmployeesForFilter = async (directorBranchCode = null) => {
             status: "active"
         };
 
-        // Branch-based access control
-        if (directorBranchCode !== '6421') {
-            // Non-6421 directors can only see employees from their own branch
-            whereCondition.branch_code = directorBranchCode;
-            logger.info(`Applying branch filter for director: ${directorBranchCode}`);
+        // Apply selected branch filter
+        if (selectedBranchCode && selectedBranchCode !== 'all') {
+            whereCondition.branch_code = selectedBranchCode;
+            logger.info(`Applying selected branch filter: ${selectedBranchCode}`);
         } else {
-            // Directors from branch 6421 can see all employees
-            logger.info('Director from branch 6421 - showing all employees');
+            // Branch-based access control if no specific branch selected
+            if (directorBranchCode !== '6421') {
+                // Non-6421 directors can only see employees from their own branch
+                whereCondition.branch_code = directorBranchCode;
+                logger.info(`Applying director branch filter: ${directorBranchCode}`);
+            } else {
+                // Directors from branch 6421 can see all employees
+                logger.info('Director from branch 6421 - showing all employees');
+            }
+        }
+
+        // Apply selected department filter
+        if (selectedDepartmentCode && selectedDepartmentCode !== 'all') {
+            whereCondition.dept = selectedDepartmentCode;
+            logger.info(`Applying department filter: ${selectedDepartmentCode}`);
         }
 
         let employees;
         try {
             employees = await userRepository.find({
                 where: whereCondition,
-                select: ["employee_code", "fullname", "branch_code"],
+                select: ["employee_code", "fullname", "branch_code", "dept"],
                 order: { fullname: "ASC" }
             });
         } catch (dbError) {
@@ -351,7 +392,11 @@ exports.getEmployeesForFilter = async (directorBranchCode = null) => {
             throw new Error('Failed to retrieve employees');
         }
 
-        logger.info(`Successfully retrieved ${employees.length} employees for director branch ${directorBranchCode}`);
+        logger.info(`Successfully retrieved ${employees.length} employees for filters`, {
+            directorBranchCode,
+            selectedBranchCode,
+            selectedDepartmentCode
+        });
         return employees;
 
     } catch (error) {
@@ -378,6 +423,37 @@ exports.getBranchesForFilter = async () => {
         .getRawMany();
     
     return branches;
+};
+
+/**
+ * Lấy danh sách phòng ban theo chi nhánh được chọn
+ * Quy tắc nghiệp vụ:
+ * - Chi nhánh 6421: [KHCN, KHDN, PGD]
+ * - Chi nhánh khác: [KH]
+ */
+exports.getDepartmentsForFilter = async (branchCode) => {
+    // Nếu không có branchCode, trả về tất cả phòng ban
+    if (!branchCode) {
+        return [
+            { department_code: "KHCN", department_name: "Khách hàng cá nhân" },
+            { department_code: "KHDN", department_name: "Khách hàng doanh nghiệp" },
+            { department_code: "PGD", department_name: "Phòng giao dịch" },
+            { department_code: "KH", department_name: "Khách hàng" }
+        ];
+    }
+
+    // Quy tắc nghiệp vụ cho từng chi nhánh
+    if (branchCode === "6421") {
+        return [
+            { department_code: "KHCN", department_name: "Khách hàng cá nhân" },
+            { department_code: "KHDN", department_name: "Khách hàng doanh nghiệp" },
+            { department_code: "PGD", department_name: "Phòng giao dịch" }
+        ];
+    } else {
+        return [
+            { department_code: "KH", department_name: "Khách hàng" }
+        ];
+    }
 };
 
 // Xóa người dùng theo ID

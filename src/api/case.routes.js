@@ -28,7 +28,7 @@ router.get(
 router.get(
     '/all-cases',
     protect,
-    authorize('director', 'deputy_director', 'administrator', 'BGĐ'), // Thêm BGĐ vào danh sách role được phép
+    authorize('director', 'deputy_director', 'administrator', 'manager'), // Thêm BGĐ vào danh sách role được phép
     caseController.getAllCases
 );
 

@@ -12,12 +12,27 @@ exports.createUser = asyncHandler(async (req, res) => {
         // 1. Kiểm tra kết quả validation
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
-            throw new ValidationError("Dữ liệu không hợp lệ", errors.array());
+            const errorMessages = errors.array().map(err => `${err.param}: ${err.msg}`).join(', ');
+            logger.warn('Validation errors in createUser:', errorMessages);
+            
+            return res.status(400).json({
+                success: false,
+                message: "Dữ liệu không hợp lệ",
+                errors: errors.array()
+            });
         }
 
-        if (!req.body) {
-            throw new ValidationError("Request body is required");
+        if (!req.body || Object.keys(req.body).length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Dữ liệu yêu cầu không được để trống"
+            });
         }
+
+        logger.info('Creating user with data:', { 
+            ...req.body, 
+            password: '[HIDDEN]' 
+        });
 
         // 2. Gọi service để tạo user
         const newUser = await userService.createUser(req.body);
@@ -34,8 +49,18 @@ exports.createUser = asyncHandler(async (req, res) => {
             user: newUser,
         });
     } catch (error) {
-        logger.error("Error in createUser:", error);
-        throw error;
+        logger.error("Error in createUser:", {
+            error: error.message,
+            stack: error.stack,
+            requestBy: req.user?.employee_code,
+            requestData: req.body ? { ...req.body, password: '[HIDDEN]' } : null
+        });
+        
+        // Return specific error message to client
+        res.status(error.message.includes('đã tồn tại') ? 409 : 500).json({
+            success: false,
+            message: error.message || "Đã có lỗi xảy ra khi tạo người dùng"
+        });
     }
 });
 
@@ -268,7 +293,10 @@ exports.getManagedOfficers = asyncHandler(async (req, res) => {
         const officers = await userService.findOfficersByManager(manager);
         res.status(200).json(officers);
     } catch (error) {
-        console.error("Lỗi khi lấy danh sách nhân viên:", error);
+        logger.error("Error in findOfficersByManager:", {
+            error: error.message,
+            manager: req.user?.employee_code
+        });
         res.status(500).json({ success: false, message: "Đã có lỗi xảy ra trên server." });
     }
 });
@@ -284,13 +312,22 @@ exports.getEmployeesForFilter = asyncHandler(async (req, res) => {
 
         // Extract director's branch code from authenticated user
         const directorBranchCode = req.user.branch_code;
+        
+        // Extract query parameters for filtering
+        const { branchCode, departmentCode } = req.query;
 
         logger.info("Fetching employees for filter with branch-based access control", {
             director: req.user.employee_code,
-            directorBranch: directorBranchCode
+            directorBranch: directorBranchCode,
+            selectedBranch: branchCode,
+            selectedDepartment: departmentCode
         });
 
-        const employees = await userService.getEmployeesForFilter(directorBranchCode);
+        const employees = await userService.getEmployeesForFilter(
+            directorBranchCode, 
+            branchCode, 
+            departmentCode
+        );
 
         if (!Array.isArray(employees)) {
             throw new Error("Invalid response from user service");
@@ -300,6 +337,8 @@ exports.getEmployeesForFilter = asyncHandler(async (req, res) => {
         logger.info(`Employee filter applied successfully`, {
             director: req.user.employee_code,
             directorBranch: directorBranchCode,
+            selectedBranch: branchCode,
+            selectedDepartment: departmentCode,
             employeesReturned: employees.length,
             isUnrestricted: directorBranchCode === '6421'
         });
@@ -309,7 +348,8 @@ exports.getEmployeesForFilter = asyncHandler(async (req, res) => {
             employees: employees,
             metadata: {
                 totalEmployees: employees.length,
-                branchFilter: directorBranchCode !== '6421' ? directorBranchCode : null,
+                branchFilter: branchCode || (directorBranchCode !== '6421' ? directorBranchCode : null),
+                departmentFilter: departmentCode || null,
                 isUnrestricted: directorBranchCode === '6421'
             }
         });
@@ -317,7 +357,9 @@ exports.getEmployeesForFilter = asyncHandler(async (req, res) => {
         logger.error("Error in getEmployeesForFilter:", {
             error: error.message,
             user: req.user?.employee_code,
-            branch: req.user?.branch_code
+            branch: req.user?.branch_code,
+            selectedBranch: req.query?.branchCode,
+            selectedDepartment: req.query?.departmentCode
         });
         throw error;
     }
@@ -334,7 +376,31 @@ exports.getBranchesForFilter = asyncHandler(async (req, res) => {
             branches: branches
         });
     } catch (error) {
-        console.error("Lỗi khi lấy danh sách chi nhánh cho filter:", error);
+        logger.error("Error in getBranchesForFilter:", {
+            error: error.message,
+            user: req.user?.employee_code
+        });
+        res.status(500).json({ success: false, message: "Đã có lỗi xảy ra trên server." });
+    }
+});
+
+/**
+ * API để lấy danh sách phòng ban theo chi nhánh được chọn
+ */
+exports.getDepartmentsForFilter = asyncHandler(async (req, res) => {
+    try {
+        const { branchCode } = req.query;
+        const departments = await userService.getDepartmentsForFilter(branchCode);
+        res.status(200).json({
+            success: true,
+            departments: departments
+        });
+    } catch (error) {
+        logger.error("Error in getDepartmentsForFilter:", {
+            error: error.message,
+            branchCode: req.query.branchCode,
+            user: req.user?.employee_code
+        });
         res.status(500).json({ success: false, message: "Đã có lỗi xảy ra trên server." });
     }
 });

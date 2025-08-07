@@ -78,11 +78,11 @@ exports.getReportData = async (req, res) => {
         }
 
         if (startDate) {
-            query = query.andWhere("debt_cases.created_date >= :startDate", { startDate });
+            query = query.andWhere("case_update.created_date >= :startDate", { startDate });
         }
 
         if (endDate) {
-            query = query.andWhere("debt_cases.created_date <= :endDate", { endDate });
+            query = query.andWhere("case_update.created_date <= :endDate", { endDate });
         }
 
         const reportData = await query
@@ -322,9 +322,10 @@ exports.getFilterOptions = async (req, res) => {
             .innerJoin("debt_cases", "cases", "cases.assigned_employee_code = user.employee_code")
             .select([
                 "user.employee_code AS employee_code",
-                "user.fullname AS fullname"
+                "user.fullname AS fullname",
+                "user.branch_code AS branch_code"
             ])
-            .groupBy("user.employee_code, user.fullname")
+            .groupBy("user.employee_code, user.fullname, user.branch_code")
             .orderBy("user.fullname", "ASC")
             .getRawMany();
 
@@ -346,6 +347,48 @@ exports.getFilterOptions = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Lỗi khi lấy danh sách bộ lọc',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Lấy danh sách nhân viên theo chi nhánh
+ */
+exports.getEmployeesByBranch = async (req, res) => {
+    try {
+        const { branch } = req.query;
+        const userRepository = AppDataSource.getRepository("User");
+
+        let query = userRepository
+            .createQueryBuilder("user")
+            .innerJoin("debt_cases", "cases", "cases.assigned_employee_code = user.employee_code")
+            .select([
+                "user.employee_code AS employee_code",
+                "user.fullname AS fullname",
+                "user.branch_code AS branch_code"
+            ])
+            .groupBy("user.employee_code, user.fullname, user.branch_code")
+            .orderBy("user.fullname", "ASC");
+
+        if (branch) {
+            query = query.where("user.branch_code = :branch", { branch });
+        }
+
+        const employees = await query.getRawMany();
+
+        res.json({
+            success: true,
+            data: {
+                employees: employees
+            }
+        });
+
+    } catch (error) {
+        console.error('Error getting employees by branch:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi khi lấy danh sách nhân viên theo chi nhánh',
             error: error.message
         });
     }

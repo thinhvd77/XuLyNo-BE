@@ -380,6 +380,10 @@ exports.findAllCases = async (page = 1, filters = {}, limit = 20, sorting = {}, 
             queryBuilder.andWhere("officer.branch_code = :branch_code", { branch_code: filters.branch_code });
         }
 
+        if (filters.department_code && typeof filters.department_code === 'string') {
+            queryBuilder.andWhere("officer.dept = :department_code", { department_code: filters.department_code });
+        }
+
         if (filters.employee_code && typeof filters.employee_code === 'string') {
             queryBuilder.andWhere("officer.employee_code = :employee_code", { employee_code: filters.employee_code });
         }
@@ -407,6 +411,19 @@ exports.findAllCases = async (page = 1, filters = {}, limit = 20, sorting = {}, 
         // Execute queries with error handling
         const offset = (page - 1) * limit;
         let cases, totalCases;
+
+        // Log applied filters for debugging
+        const appliedFilters = Object.entries(filters)
+            .filter(([key, value]) => value && value !== '')
+            .map(([key, value]) => `${key}=${value}`)
+            .join(', ');
+            
+        logger.info('Case filtering applied:', {
+            directorBranch: directorBranchCode,
+            appliedFilters: appliedFilters || 'none',
+            page,
+            limit
+        });
 
         try {
             [cases, totalCases] = await Promise.all([

@@ -15,8 +15,9 @@ const createUserValidationRules = [
         .isLength({ min: 6 })
         .withMessage("Mật khẩu phải có ít nhất 6 ký tự."),
     body("fullname").notEmpty().withMessage("Họ và tên là bắt buộc."),
+    body("branch_code").notEmpty().withMessage("Mã chi nhánh là bắt buộc."),
     body("dept")
-        .isIn(["KHCN", "KHDN", "KH&QLRR", "BGĐ", "IT"])
+        .isIn(["KHCN", "KHDN", "KH", "KH&QLRR", "PGD", "BGĐ", "IT", "KTGSNB"])
         .withMessage("Phòng ban không hợp lệ."),
     body("role")
         .isIn([
@@ -55,7 +56,7 @@ const updateUserValidationRules = [
     body("fullname").optional().notEmpty().withMessage("Họ và tên không được để trống."),
     body("dept")
         .optional()
-        .isIn(["KHCN", "KHDN","KH", "KH&QLRR", "PGD", "BGĐ", "IT"])
+        .isIn(["KHCN", "KHDN","KH", "KH&QLRR", "PGD", "BGĐ", "IT", "KTGSNB"])
         .withMessage("Phòng ban không hợp lệ."),
     body("role")
         .optional()
@@ -100,7 +101,7 @@ router.get(
 router.get(
     "/employees-for-filter",
     protect, // 1. Yêu cầu đăng nhập
-    authorize("director", "deputy_director", "administrator"), // 2. Chỉ Giám đốc, Phó giám đốc và Administrator được phép truy cập
+    authorize("director", "deputy_director", "administrator", "manager"), // 2. Chỉ Giám đốc, Phó giám đốc và Administrator được phép truy cập
     userController.getEmployeesForFilter // 3. Xử lý logic
 );
 
@@ -108,8 +109,16 @@ router.get(
 router.get(
     "/branches-for-filter",
     protect, // 1. Yêu cầu đăng nhập
-    authorize("director", "deputy_director", "administrator"), // 2. Chỉ Giám đốc, Phó giám đốc và Administrator được phép truy cập
+    authorize("director", "deputy_director", "administrator", "manager"), // 2. Chỉ Giám đốc, Phó giám đốc và Administrator được phép truy cập
     userController.getBranchesForFilter // 3. Xử lý logic
+);
+
+// Định nghĩa route: GET /api/users/departments-for-filter - Lấy danh sách phòng ban theo chi nhánh để filter
+router.get(
+    "/departments-for-filter",
+    protect, // 1. Yêu cầu đăng nhập
+    authorize("director", "deputy_director", "administrator", "manager"), // 2. Chỉ Giám đốc, Phó giám đốc và Administrator được phép truy cập
+    userController.getDepartmentsForFilter // 3. Xử lý logic
 );
 
 // Định nghĩa route: GET /api/users/:id

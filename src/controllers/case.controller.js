@@ -109,7 +109,8 @@ exports.getAllCases = asyncHandler(async (req, res) => {
             sortBy = '',
             sortOrder = 'asc',
             branch_code = '',
-            employee_code = ''
+            employee_code = '',
+            department_code = ''
         } = req.query;
 
         // Input validation
@@ -141,7 +142,8 @@ exports.getAllCases = asyncHandler(async (req, res) => {
             type: type || '',
             status: status || '',
             branch_code: branch_code || '',
-            employee_code: employee_code || ''
+            employee_code: employee_code || '',
+            department_code: department_code || ''
         };
 
         const sorting = {
@@ -246,6 +248,55 @@ exports.getCaseOverview = asyncHandler(async (req, res) => {
         throw new ValidationError("ID hồ sơ không hợp lệ.");
     }
 
+    // SECURITY: Access control based on user role
+    const currentUser = req.user;
+    const userRole = currentUser.role;
+    const userDept = currentUser.dept;
+    const userEmployeeCode = currentUser.employee_code;
+
+    // Get case details first to check ownership/access
+    const caseDetail = await caseService.getCaseById(caseId);
+    if (!caseDetail) {
+        throw new NotFoundError("Hồ sơ không tìm thấy.");
+    }
+
+    // Access control logic
+    let hasAccess = false;
+
+    if (userRole === 'administrator') {
+        hasAccess = true; // Admin has full access
+    } else if (userRole === 'deputy_director' || userRole === 'director' || 
+               (userRole === 'manager' && userDept === 'KHDN') || userDept === 'KTGSNB') {
+        // Directors can access cases based on branch filtering (handled by service layer)
+        hasAccess = true;
+    } else if (userRole === 'employee' && 
+               ['KHCN', 'KHDN', 'KH', 'PGD'].includes(userDept)) {
+        // Employee can only access their own assigned cases
+        hasAccess = (caseDetail.assigned_employee_code === userEmployeeCode);
+    } else if ((userRole === 'deputy_manager' && userDept === 'KHDN') || 
+               ((userRole === 'manager' || userRole === 'deputy_manager') && 
+                ['KHCN', 'KH', 'PGD'].includes(userDept))) {
+        // Manager/Deputy Manager can access cases in their department and branch
+        hasAccess = (caseDetail.officer && 
+                    caseDetail.officer.dept === userDept && 
+                    caseDetail.officer.branch_code === currentUser.branch_code);
+    }
+
+    if (!hasAccess) {
+        logger.warn('🚫 SECURITY: Unauthorized case overview access attempt', {
+            user: userEmployeeCode,
+            role: userRole,
+            dept: userDept,
+            caseId: caseId,
+            caseOwner: caseDetail.assigned_employee_code
+        });
+        
+        return res.status(403).json({
+            success: false,
+            message: "Bạn không có quyền truy cập hồ sơ này."
+        });
+    }
+
     const overview = await caseService.getCaseOverview(caseId, parseInt(limit));
 
     res.status(200).json({
@@ -289,7 +340,6 @@ exports.createCaseUpdate = asyncHandler(async (req, res) => {
     const caseId = req.params.caseId;
     const { content } = req.body;
     const uploader = req.user; // Lấy thông tin từ token
-    console.log(uploader);
 
     const newUpdate = await caseService.addCaseUpdate(
         caseId,
@@ -347,14 +397,6 @@ exports.uploadDocument = asyncHandler(async (req, res) => {
     const uploader = req.user;
     const file = req.file;
     const documentType = req.body.document_type || 'other'; // Lấy document_type từ request body
-    console.log('=== DEBUG UPLOAD ===');
-    console.log('File:', file ? file.filename : 'No file');
-    console.log('req.body:', req.body);
-    console.log('Document type from body:', req.body.document_type);
-    console.log('Final document type:', documentType);
-    console.log('Uploader:', uploader);
-    console.log('===================');
-
 
     if (!file) {
         throw new ValidationError("Vui lòng chọn một file để tải lên.");
@@ -407,8 +449,6 @@ exports.getCaseDocuments = asyncHandler(async (req, res) => {
     }
 
     const documents = await caseService.getDocumentsByCase(caseId);
-    console.log('Documents found:', documents.length);
-    console.log('Sample document:', documents[0]);
 
     res.status(200).json({
         success: true,
@@ -425,14 +465,21 @@ exports.downloadDocument = asyncHandler(async (req, res) => {
 
     // Validate document ID format
     if (!documentId || typeof documentId !== 'string' || !/^[a-zA-Z0-9\-]+$/.test(documentId)) {
-        console.warn(`[SECURITY] Invalid document ID format: ${documentId}`);
+        logger.warn('Invalid document ID format attempted', {
+            documentId,
+            user: req.user?.employee_code,
+            ip: req.ip
+        });
         throw new ValidationError("ID tài liệu không hợp lệ.");
     }
 
     const document = await caseService.getDocumentById(documentId);
 
     if (!document) {
-        console.warn(`[SECURITY] Document not found for ID: ${documentId}`);
+        logger.warn('Document not found', {
+            documentId,
+            user: req.user?.employee_code
+        });
         throw new NotFoundError("Không tìm thấy tài liệu.");
     }
 
@@ -441,7 +488,11 @@ exports.downloadDocument = asyncHandler(async (req, res) => {
 
     // Validate and sanitize the file path from database
     if (!document.file_path || !validateAndSanitizePath(document.file_path)) {
-        console.error(`[SECURITY] Invalid or malicious file path detected: ${document.file_path}`);
+        logger.error('Invalid file path detected', {
+            documentId,
+            filePath: document.file_path,
+            user: req.user?.employee_code
+        });
         throw new ValidationError("Đường dẫn file không hợp lệ.");
     }
 
@@ -449,20 +500,34 @@ exports.downloadDocument = asyncHandler(async (req, res) => {
     const absolutePath = getAbsoluteFilePath(document.file_path);
 
     if (!absolutePath) {
-        console.error(`[SECURITY] Path traversal attempt blocked for document: ${documentId}, path: ${document.file_path}`);
+        logger.error('Path traversal attempt blocked', {
+            documentId,
+            filePath: document.file_path,
+            user: req.user?.employee_code,
+            ip: req.ip
+        });
         throw new ValidationError("Truy cập file bị từ chối.");
     }
 
     // Check if file exists
     if (!fs.existsSync(absolutePath)) {
-        console.warn(`[SECURITY] File not found: ${absolutePath} for document: ${documentId}`);
+        logger.warn('File not found on server', {
+            documentId,
+            absolutePath,
+            user: req.user?.employee_code
+        });
         throw new NotFoundError("File không tồn tại trên server.");
     }
 
     // Additional security check: verify file is actually a file (not directory)
     const stats = fs.statSync(absolutePath);
     if (!stats.isFile()) {
-        console.error(`[SECURITY] Attempted to download non-file: ${absolutePath}`);
+        logger.error('Attempted to download non-file', {
+            documentId,
+            absolutePath,
+            user: req.user?.employee_code,
+            ip: req.ip
+        });
         throw new ValidationError("Truy cập file bị từ chối.");
     }
 
@@ -487,13 +552,22 @@ exports.downloadDocument = asyncHandler(async (req, res) => {
     }
 
     // Log successful download attempt
-    console.log(`[SECURITY] File download initiated - Document: ${documentId}, User: ${req.user?.id || 'unknown'}, File: ${absolutePath}`);
+    logger.info('File download initiated', {
+        documentId,
+        user: req.user?.employee_code,
+        filename: originalFilename,
+        size: document.file_size
+    });
 
     // Stream file to client with error handling
     const fileStream = fs.createReadStream(absolutePath);
 
     fileStream.on('error', (error) => {
-        console.error(`[SECURITY] File stream error for document ${documentId}:`, error);
+        logger.error('File stream error during download', {
+            documentId,
+            error: error.message,
+            user: req.user?.employee_code
+        });
         if (!res.headersSent) {
             res.status(500).json({
                 success: false,
@@ -503,7 +577,10 @@ exports.downloadDocument = asyncHandler(async (req, res) => {
     });
 
     fileStream.on('end', () => {
-        console.log(`[SECURITY] File download completed - Document: ${documentId}`);
+        logger.info('File download completed', {
+            documentId,
+            user: req.user?.employee_code
+        });
     });
 
     fileStream.pipe(res);
@@ -518,14 +595,21 @@ exports.previewDocument = asyncHandler(async (req, res) => {
 
     // Validate document ID format
     if (!documentId || typeof documentId !== 'string' || !/^[a-zA-Z0-9\-]+$/.test(documentId)) {
-        console.warn(`[SECURITY] Invalid document ID format for preview: ${documentId}`);
+        logger.warn('Invalid document ID format for preview', {
+            documentId,
+            user: req.user?.employee_code,
+            ip: req.ip
+        });
         throw new ValidationError("ID tài liệu không hợp lệ.");
     }
 
     const document = await caseService.getDocumentById(documentId);
 
     if (!document) {
-        console.warn(`[SECURITY] Document not found for preview: ${documentId}`);
+        logger.warn('Document not found for preview', {
+            documentId,
+            user: req.user?.employee_code
+        });
         throw new NotFoundError("Không tìm thấy tài liệu.");
     }
 
@@ -542,13 +626,22 @@ exports.previewDocument = asyncHandler(async (req, res) => {
     const absolutePath = getAbsoluteFilePath(document.file_path);
 
     if (!absolutePath) {
-        console.error(`[SECURITY] Path traversal attempt blocked for preview - Document: ${documentId}, path: ${document.file_path}`);
+        logger.error('Path traversal attempt blocked for preview', {
+            documentId,
+            filePath: document.file_path,
+            user: req.user?.employee_code,
+            ip: req.ip
+        });
         throw new ValidationError("Truy cập file bị từ chối.");
     }
 
     // Check if file exists
     if (!fs.existsSync(absolutePath)) {
-        console.warn(`[SECURITY] File not found for preview: ${absolutePath} for document: ${documentId}`);
+        logger.warn('File not found for preview', {
+            documentId,
+            absolutePath,
+            user: req.user?.employee_code
+        });
         throw new NotFoundError("File không tồn tại trên server.");
     }
 

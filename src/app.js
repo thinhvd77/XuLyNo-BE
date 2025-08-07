@@ -31,10 +31,10 @@ const corsOptions = {
         // Các pattern cho phép
         const allowedPatterns = [
             /^http:\/\/localhost(:\d+)?$/,        // localhost với hoặc không có port
-            /^http:\/\/127\.0\.0\.1:\d+$/,        // 127.0.0.1 với bất kỳ port nào  
-            /^http:\/\/192\.168\.\d+\.\d+:\d+$/,  // Mạng LAN 192.168.x.x
-            /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,   // Mạng LAN 10.x.x.x
-            /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d+\.\d+:\d+$/ // Mạng LAN 172.16-31.x.x
+            /^http:\/\/127\.0\.0\.1(:\d+)?$/,     // 127.0.0.1 với hoặc không có port  
+            /^http:\/\/192\.168\.\d+\.\d+(:\d+)?$/,  // Mạng LAN 192.168.x.x với hoặc không có port
+            /^http:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/,   // Mạng LAN 10.x.x.x với hoặc không có port
+            /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d+\.\d+(:\d+)?$/ // Mạng LAN 172.16-31.x.x với hoặc không có port
         ];
         
         const isAllowed = allowedPatterns.some(pattern => pattern.test(origin));
@@ -85,10 +85,10 @@ app.use((req, res, next) => {
     // Các pattern cho phép (giống như trong corsOptions)
     const allowedPatterns = [
         /^http:\/\/localhost(:\d+)?$/,        // localhost với hoặc không có port
-        /^http:\/\/127\.0\.0\.1:\d+$/,        
-        /^http:\/\/192\.168\.\d+\.\d+:\d+$/,  
-        /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,   
-        /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d+\.\d+:\d+$/
+        /^http:\/\/127\.0\.0\.1(:\d+)?$/,     // 127.0.0.1 với hoặc không có port        
+        /^http:\/\/192\.168\.\d+\.\d+(:\d+)?$/,  // Mạng LAN 192.168.x.x với hoặc không có port
+        /^http:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/,   // Mạng LAN 10.x.x.x với hoặc không có port
+        /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d+\.\d+(:\d+)?$/ // Mạng LAN 172.16-31.x.x với hoặc không có port
     ];
     
     // Set CORS headers
